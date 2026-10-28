@@ -1,6 +1,6 @@
 // Strona działa bez internetu po pierwszym otwarciu (w terenie telefon łączy się tylko z Heltec).
 // Obejrzane fragmenty mapy i biblioteka Leaflet zostają w pamięci telefonu.
-const CACHE = "rid-phone-v6";
+const CACHE = "rid-phone-v7";
 const TILES = "rid-tiles-v1";
 const MAX_TILES = 1500;  // ok. 20-40 MB
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon.svg", "nosleep.mp4"];
@@ -36,7 +36,7 @@ async function cacheFirst(req, name) {
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
-  if (url.hostname === "tile.openstreetmap.org") {
+  if (url.hostname === "tile.openstreetmap.org" || /^mt[0-3]\.google\.com$/.test(url.hostname)) {
     e.respondWith(cacheFirst(e.request, TILES));
     return;
   }

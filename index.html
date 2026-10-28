@@ -537,7 +537,15 @@ async function ensureMap() {
     return null;
   }
   map = L.map("map", { zoomControl: true, attributionControl: true }).setView([52.1, 19.4], 6);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  // podkłady mapy; wybór zapamiętany w telefonie
+  const bases = {
+    "OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }),
+    "Google Hybrid": L.tileLayer("https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+      { maxZoom: 21, subdomains: "0123", attribution: "© Google" }),
+  };
+  (bases[store.get("rid-base", "OpenStreetMap")] || bases.OpenStreetMap).addTo(map);
+  L.control.layers(bases, null, { position: "topright" }).addTo(map);
+  map.on("baselayerchange", (e) => store.set("rid-base", e.name));
   map.on("dragstart", () => { autoFit = false; });  // użytkownik przesuwa mapę - nie przeskakujemy
   return map;
 }
