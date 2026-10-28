@@ -106,6 +106,8 @@
 <div id="list"><div class="empty">Połącz się z Heltec, żeby zobaczyć drony w zasięgu.</div></div>
 <div class="row" style="margin-top:10px">
   <button id="clearlist">Wyczyść listę</button>
+  <button id="histreload" title="Pobierz ponownie historię z pamięci Heltec">Odśwież historię</button>
+  <button id="histclear" class="foreign" title="Kasuje historię dronów zapisaną w Heltec">Wyczyść historię w Heltec</button>
 </div>
 <p class="note" style="color:var(--muted);font-size:13px">
   Telefon łączy się z płytką Heltec (firmware RID 1.4+) przez Bluetooth: na Androidzie w Chrome,
@@ -192,6 +194,8 @@ async function openGatt() {
     failures = 0;
     $("devname").textContent = device.name || "Heltec";
     setConn("połączono", "on");
+    // czas z telefonu (godziny w historii także bez komputera), potem drony z pamięci Heltec
+    setTimeout(async () => { await send(`TIME ${Math.floor(Date.now() / 1000)}`); send("HIST"); }, 800);
     $("connect").textContent = "Rozłącz";
     $("pinhint").hidden = true;
   } catch (e) {
@@ -254,6 +258,10 @@ function onData(e) {
     if (msg.d) onDrone(msg.d);
     else if (msg.s) { status = msg.s; renderStatus(); }
     else if (msg.tags) { tags = msg.tags; render(); }
+    else if (msg.h) onHist(msg.h);
+    else if (msg.hp) onHistPoints(msg.hp);
+    else if (msg.hend !== undefined) onHistEnd(msg.hend);
+    else if (msg.hclr) { for (const [k, d] of drones) if (d.hist && !d.live) drones.delete(k); histInfo = "historia wyczyszczona"; render(); }
   }
   if (buffer.length > 4000) buffer = "";  // zabezpieczenie przed zgubionym końcem linii
 }
@@ -262,6 +270,68 @@ function onData(e) {
 
 function keyOf(d) { return d.id || `mac:${d.mac}`; }
 function tagOf(d) { return (d.id && tags[d.id]) || d.tag || null; }
+
+// ---- historia z pamięci Heltec: te same drony, które strona RID Decoder pokazuje po imporcie
+const histKeys = new Map();   // hk (skrót ID z płytki) -> klucz drona
+const histPts = new Map();    // klucz drona -> [[t, lat, lon]]
+let histInfo = "";
+
+function onHist(h) {
+  const k = h.id.startsWith("mac:") ? `mac:${h.id.slice(4)}` : h.id;
+  histKeys.set(h.hk, k);
+  const e = drones.get(k) || { first: Infinity, seen: 0 };
+  const last = h.last ? h.last * 1000 : 0;
+  e.hist = true;
+  e.histFirst = h.first ? h.first * 1000 : null;
+  e.histLast = last || null;
+  e.frames = h.n;
+  e.maxh = h.maxh;
+  if (h.id && !h.id.startsWith("mac:")) e.id = h.id;
+  if (h.tag) e.tag = h.tag;
+  if (!e.live || last > e.seen) {  // dane z pamięci tylko gdy nowsze niż to, co widać na żywo
+    for (const f of ["lat", "lon", "olat", "olon", "rssi"]) if (h[f] !== undefined) e[f] = h[f];
+    if (!e.live) e.seen = last;
+  }
+  if (e.histFirst && e.histFirst < e.first) e.first = e.histFirst;
+  e.track = e.track || [];
+  drones.set(k, e);
+  histPts.set(k, []);
+  scheduleRender();
+}
+
+function onHistPoints(pts) {
+  for (const [hk, t, lat, lon] of pts) {
+    const k = histKeys.get(hk);
+    if (k && histPts.has(k)) histPts.get(k).push([t, lat, lon]);
+  }
+}
+
+function onHistEnd(n) {
+  for (const [k, pts] of histPts) {
+    const e = drones.get(k);
+    if (!e) continue;
+    pts.sort((a, b) => a[0] - b[0]);
+    // ślad z pamięci + to, co przyszło na żywo w trakcie
+    e.track = pts.map((p) => [p[1], p[2]]).concat(e.liveTrack || []);
+  }
+  histPts.clear();
+  histInfo = n ? `w pamięci Heltec: ${n} dronów` : "historia w Heltec jest pusta";
+  render();
+}
+
+const timeText = (ms) => {
+  if (!ms) return "czas nieznany";
+  const d = new Date(ms), today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString("pl-PL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+const agoText = (d, age) => {
+  if (!d.seen) return "czas nieznany";
+  if (age < 2) return "teraz";
+  if (age < 120) return `${Math.round(age)} s temu`;
+  if (age < 3600) return `${Math.round(age / 60)} min temu`;
+  return `ostatnio ${timeText(d.seen)}`;
+};
 
 function onDrone(d) {
   const k = keyOf(d);
@@ -277,12 +347,19 @@ function onDrone(d) {
   const seen = now - (d.age || 0) * 1000;
   const before = drones.get(k);
   const merged = { ...(before || { first: seen }), ...d, seen };
-  // ślad lotu do mapy (ostatnie 300 pozycji)
+  merged.live = true;
+  if (!Number.isFinite(merged.first)) merged.first = seen;
+  // ślad lotu do mapy: z pamięci Heltec (historia) + pozycje na żywo (ostatnie 300)
   merged.track = before?.track || [];
+  merged.liveTrack = before?.liveTrack || [];
   if (d.lat !== undefined) {
     const last = merged.track[merged.track.length - 1];
-    if (!last || last[0] !== d.lat || last[1] !== d.lon) merged.track.push([d.lat, d.lon]);
-    if (merged.track.length > 300) merged.track.shift();
+    if (!last || last[0] !== d.lat || last[1] !== d.lon) {
+      merged.track.push([d.lat, d.lon]);
+      merged.liveTrack.push([d.lat, d.lon]);
+    }
+    if (merged.track.length > 600) merged.track.shift();
+    if (merged.liveTrack.length > 300) merged.liveTrack.shift();
   }
   drones.set(k, merged);
   // alarm: pierwszy raz albo po powrocie po dłuższej nieobecności; swoje nigdy
@@ -366,7 +443,8 @@ function renderStatus() {
     <span>kanał Wi-Fi <b>${s.ch}${s.fixed ? "" : "*"}</b></span>
     <span>Meshtastic <b>${s.mesh ? "nadaje" : "wył."}</b></span>
     ${s.pc ? "<span><b>podłączony do PC</b></span>" : ""}
-    ${s.pend ? `<span>oznaczeń do przeniesienia na stronę: <b>${s.pend}</b></span>` : ""}`;
+    ${s.pend ? `<span>oznaczeń do przeniesienia na stronę: <b>${s.pend}</b></span>` : ""}
+    ${histInfo ? `<span>${esc(histInfo)}</span>` : ""}`;
 }
 
 function tagBadge(t) {
@@ -400,7 +478,9 @@ function render() {
         <span>kurs <b>${fmt(d.trk, "°")}</b></span>
         <span>RSSI <b>${fmt(d.rssi, " dBm")}</b></span>
         <span>operator <b>${op ? `${distText(op.dist)} ${cardinal(op.brg)}` : opDrone !== null ? `${distText(opDrone)} od drona` : "—"}</b></span>
-        <span>${age < 2 ? "teraz" : `${Math.round(age)} s temu`}</span>
+        <span>${agoText(d, age)}</span>
+        ${d.hist ? `<span>z pamięci: <b>${timeText(d.histFirst)} – ${timeText(d.histLast)}</b></span>` : ""}
+        ${d.maxh ? `<span>maks. wys. <b>${fmt(d.maxh, " m")}</b></span>` : ""}
         ${d.lat === undefined ? "<span>brak pozycji drona</span>" : ""}
       </div>`;
       if (expanded === k) {
@@ -602,6 +682,10 @@ function renderRadar(list) {
 $("connect").addEventListener("click", () => (wantConnected ? disconnect() : connect()));
 $("hideown").addEventListener("change", render);
 $("clearlist").addEventListener("click", () => { drones.clear(); render(); });
+$("histreload").addEventListener("click", () => send("HIST"));
+$("histclear").addEventListener("click", () => {
+  if (confirm("Skasować historię dronów zapisaną w Heltec? (Pełny zapis ramek dla komputera zostaje.)")) send("HISTCLR");
+});
 $("list").addEventListener("click", async (e) => {
   const card = e.target.closest(".card");
   if (!card) return;
