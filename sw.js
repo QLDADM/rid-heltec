@@ -1,9 +1,9 @@
 // Strona działa bez internetu po pierwszym otwarciu (w terenie telefon łączy się tylko z Heltec).
 // Obejrzane fragmenty mapy i biblioteka Leaflet zostają w pamięci telefonu.
-const CACHE = "rid-phone-v4";
+const CACHE = "rid-phone-v5";
 const TILES = "rid-tiles-v1";
 const MAX_TILES = 1500;  // ok. 20-40 MB
-const FILES = ["./", "index.html", "manifest.webmanifest", "icon.svg"];
+const FILES = ["./", "index.html", "manifest.webmanifest", "icon.svg", "nosleep.mp4"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

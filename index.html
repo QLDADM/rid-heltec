@@ -637,13 +637,33 @@ for (const id of PREFS) {
   $(id).addEventListener("change", (e) => { prefs[id] = e.target.checked; store.set("rid-prefs", prefs); });
 }
 
+// Bluefy i starsze iOS nie mają Wake Lock API - wtedy ekran trzyma zapętlone, wyciszone mini-wideo
+let keepAwakeVideo = null;
+function videoKeepAwake(on) {
+  if (!on) { keepAwakeVideo?.pause(); return Promise.resolve(true); }
+  if (!keepAwakeVideo) {
+    keepAwakeVideo = document.createElement("video");
+    keepAwakeVideo.setAttribute("playsinline", "");
+    keepAwakeVideo.setAttribute("muted", "");
+    keepAwakeVideo.muted = true;
+    keepAwakeVideo.loop = true;
+    keepAwakeVideo.src = "nosleep.mp4";
+    keepAwakeVideo.style.cssText = "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;pointer-events:none";
+    document.body.appendChild(keepAwakeVideo);
+  }
+  return keepAwakeVideo.play().then(() => true, () => false);  // bez dotknięcia strony iOS odmówi
+}
+
 async function applyWake() {
-  try {
-    if ($("wake").checked) {
-      if (!wakeLock || wakeLock.released) wakeLock = await navigator.wakeLock.request("screen");
-    } else { await wakeLock?.release(); wakeLock = null; }
-    return true;
-  } catch { return false; }
+  const on = $("wake").checked;
+  if (navigator.wakeLock) {
+    try {
+      if (on && (!wakeLock || wakeLock.released)) wakeLock = await navigator.wakeLock.request("screen");
+      if (!on) { await wakeLock?.release(); wakeLock = null; }
+      return true;
+    } catch { /* odmowa - próbujemy wideo */ }
+  }
+  return videoKeepAwake(on);
 }
 $("wake").addEventListener("change", async (e) => {
   if (!(await applyWake()) && e.target.checked) {
@@ -659,6 +679,7 @@ document.addEventListener("visibilitychange", () => {
 // po odświeżeniu: blokada ekranu i dźwięk; część przeglądarek wymaga do tego dotknięcia strony
 applyWake();
 document.addEventListener("pointerdown", () => { unlockAudio(); applyWake(); }, { once: true });
+document.addEventListener("touchend", () => applyWake(), { once: true });  // iOS: odtwarzanie wideo tylko po dotknięciu
 
 // ---- po odświeżeniu łączymy się sami z wcześniej wybranym Heltec (bez okna wyboru i PIN-u)
 async function autoReconnect() {
