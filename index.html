@@ -63,6 +63,17 @@
   .row a { color: var(--accent); }
   .empty { color: var(--muted); text-align: center; padding: 26px 8px; }
   label.chk { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 5px; }
+  .tabs { display: flex; gap: 6px; margin-top: 10px; }
+  .tabs button.sel { border-color: var(--accent); color: var(--accent); }
+  .tabs #fit { margin-left: auto; }
+  #mapwrap { margin: 8px 0 10px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; position: relative; }
+  #map { height: 55vh; min-height: 280px; background: #0b0f13; }
+  #mapmsg { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 1000; margin: 0; }
+  .dicon svg { width: 30px; height: 30px; filter: drop-shadow(0 0 2px #000); }
+  .oicon { width: 14px; height: 14px; background: var(--warn); border: 2px solid #000; }
+  .leaflet-tooltip.lbl { background: rgba(15, 20, 25, .85); color: var(--text); border: 1px solid var(--line);
+    font: 11px ui-monospace, Consolas, monospace; padding: 1px 5px; box-shadow: none; }
+  .leaflet-tooltip.lbl::before { display: none; }
 </style>
 </head>
 <body>
@@ -85,6 +96,12 @@
   <span id="gps">GPS telefonu: —</span>
 </div>
 
+<div class="tabs" id="viewtabs" hidden>
+  <button data-view="map">Mapa</button>
+  <button data-view="radar">Radar</button>
+  <button id="fit" title="Pokaż wszystkie drony i telefon">Dopasuj</button>
+</div>
+<div id="mapwrap" hidden><div id="map"></div><div id="mapmsg" class="note" hidden></div></div>
 <div id="radarwrap" hidden><svg id="radar" viewBox="-110 -110 220 220"></svg></div>
 <div id="list"><div class="empty">Połącz się z Heltec, żeby zobaczyć drony w zasięgu.</div></div>
 <div class="row" style="margin-top:10px">
@@ -145,11 +162,20 @@ async function connect() {
       filters: [{ namePrefix: "RID-Heltec" }, { services: [NUS] }], optionalServices: [NUS],
     });
   } catch { return; }  // użytkownik zamknął okno wyboru
+  unlockAudio();
+  attach(device);
+  await openGatt();
+}
+
+function attach(dev) {
+  device = dev;
   wantConnected = true;
   failures = 0;
-  device.addEventListener("gattserverdisconnected", onDisconnected);
-  unlockAudio();
-  await openGatt();
+  store.set("rid-auto", true);
+  if (!dev._ridListener) {
+    dev.addEventListener("gattserverdisconnected", onDisconnected);
+    dev._ridListener = true;
+  }
   startGps();
 }
 
@@ -195,6 +221,7 @@ function onDisconnected() {
 
 function disconnect() {
   wantConnected = false;
+  store.set("rid-auto", false);  // rozłączone ręcznie - po odświeżeniu nie łączymy się sami
   if (device?.gatt.connected) device.gatt.disconnect();
   $("connect").textContent = "Połącz";
   setConn("rozłączono", "off");
@@ -250,6 +277,13 @@ function onDrone(d) {
   const seen = now - (d.age || 0) * 1000;
   const before = drones.get(k);
   const merged = { ...(before || { first: seen }), ...d, seen };
+  // ślad lotu do mapy (ostatnie 300 pozycji)
+  merged.track = before?.track || [];
+  if (d.lat !== undefined) {
+    const last = merged.track[merged.track.length - 1];
+    if (!last || last[0] !== d.lat || last[1] !== d.lon) merged.track.push([d.lat, d.lon]);
+    if (merged.track.length > 300) merged.track.shift();
+  }
   drones.set(k, merged);
   // alarm: pierwszy raz albo po powrocie po dłuższej nieobecności; swoje nigdy
   const returning = before && seen - before.seen > REALERT_S * 1000;
@@ -387,8 +421,146 @@ function render() {
       return h + "</div>";
     }).join("");
   }
-  renderRadar(list);
+  renderViews(list);
 }
+
+// ---------------------------------------------------------------- mapa (Leaflet + OpenStreetMap) / radar
+
+let view = store.get("rid-view", "map");
+let map = null, mapLoading = null, mapFailed = false, autoFit = true;
+const mapLayers = new Map();  // klucz drona -> {drone, op, link, track}
+let meMarker = null, meCircle = null;
+const TAG_COLOR = { own: "#3ccf7a", foreign: "#ff4d4f" };
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (mapLoading) return mapLoading;
+  mapLoading = new Promise((resolve, reject) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(css);
+    const js = document.createElement("script");
+    js.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    js.onload = resolve;
+    js.onerror = reject;
+    document.head.appendChild(js);
+  });
+  return mapLoading;
+}
+
+async function ensureMap() {
+  if (map || mapFailed) return map;
+  try { await loadLeaflet(); } catch {
+    mapFailed = true;  // brak internetu i biblioteki w pamięci telefonu
+    mapLoading = null;
+    return null;
+  }
+  map = L.map("map", { zoomControl: true, attributionControl: true }).setView([52.1, 19.4], 6);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  map.on("dragstart", () => { autoFit = false; });  // użytkownik przesuwa mapę - nie przeskakujemy
+  return map;
+}
+
+function droneIcon(d, tag) {
+  const c = TAG_COLOR[tag] || "#f0b429";
+  const shape = d.trk !== undefined
+    ? `<path d="M15 2 L26 27 L15 21 L4 27 Z" fill="${c}" stroke="#000" stroke-width="1.6"/>`
+    : `<circle cx="15" cy="15" r="9" fill="${c}" stroke="#000" stroke-width="1.6"/>`;
+  return L.divIcon({ className: "dicon", iconSize: [30, 30], iconAnchor: [15, 15],
+    html: `<svg viewBox="0 0 30 30" style="transform:rotate(${d.trk || 0}deg)">${shape}</svg>` });
+}
+
+function focusCard(k) {
+  expanded = k;
+  render();
+  document.querySelector(`.card[data-k="${CSS.escape(k)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function renderMap(list) {
+  const seen = new Set(), pts = [];
+  for (const { k, d, tag, age } of list) {
+    if (d.lat === undefined) continue;
+    seen.add(k);
+    let g = mapLayers.get(k);
+    if (!g) {
+      g = { track: L.polyline([], { weight: 2, opacity: 0.6 }).addTo(map) };
+      g.drone = L.marker([d.lat, d.lon], { zIndexOffset: 1000 }).addTo(map).on("click", () => focusCard(k));
+      g.drone.bindTooltip("", { permanent: true, direction: "right", offset: [14, 0], className: "lbl" });
+      mapLayers.set(k, g);
+    }
+    const color = TAG_COLOR[tag] || "#f0b429";
+    g.track.setLatLngs(d.track || []).setStyle({ color });
+    g.drone.setLatLng([d.lat, d.lon]).setIcon(droneIcon(d, tag)).setOpacity(age > STALE_S ? 0.5 : 1);
+    g.drone.setTooltipContent(`${esc((names[d.id] || d.id || "?").slice(-10))} · ${fmt(d.h ?? d.alt, " m")}`);
+    pts.push([d.lat, d.lon]);
+    if (d.olat !== undefined) {
+      if (!g.op) {
+        g.op = L.marker([d.olat, d.olon], { icon: L.divIcon({ className: "", iconSize: [14, 14], html: '<div class="oicon"></div>' }) })
+          .addTo(map).bindTooltip("operator").on("click", () => focusCard(k));
+        g.link = L.polyline([], { color: "#f0b429", weight: 1.5, dashArray: "5 5" }).addTo(map);
+      }
+      g.op.setLatLng([d.olat, d.olon]);
+      g.link.setLatLngs([[d.olat, d.olon], [d.lat, d.lon]]);
+      pts.push([d.olat, d.olon]);
+    }
+  }
+  for (const [k, g] of mapLayers) {
+    if (seen.has(k)) continue;
+    Object.values(g).forEach((x) => x && x.remove());
+    mapLayers.delete(k);
+  }
+  if (me) {
+    if (!meMarker) {
+      meCircle = L.circle([me.lat, me.lon], { radius: me.acc, color: "#3fb6ff", weight: 1, fillOpacity: 0.08 }).addTo(map);
+      meMarker = L.circleMarker([me.lat, me.lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#3fb6ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("Ty");
+    }
+    meMarker.setLatLng([me.lat, me.lon]);
+    meCircle.setLatLng([me.lat, me.lon]).setRadius(me.acc);
+    pts.push([me.lat, me.lon]);
+  }
+  if (autoFit && pts.length) {
+    const b = L.latLngBounds(pts);
+    if (!map.getBounds().contains(b) || map.getZoom() < 10) map.fitBounds(b.pad(0.2), { maxZoom: 17, animate: false });
+  }
+}
+
+async function renderViews(list) {
+  const hasPos = list.some(({ d }) => d.lat !== undefined);
+  $("viewtabs").hidden = !(hasPos || me);
+  document.querySelectorAll("#viewtabs [data-view]").forEach((b) => b.classList.toggle("sel", b.dataset.view === view));
+  $("fit").hidden = view !== "map";
+  if (view === "map" && !$("viewtabs").hidden) {
+    $("radarwrap").hidden = true;
+    $("mapwrap").hidden = false;
+    const m = await ensureMap();
+    if (!m) {
+      $("mapmsg").hidden = false;
+      $("mapmsg").textContent = "Mapa niedostępna bez internetu (albo nieobejrzana wcześniej) - użyj radaru.";
+      $("map").style.display = "none";
+      return;
+    }
+    $("map").style.display = "";
+    $("mapmsg").hidden = true;
+    m.invalidateSize();
+    renderMap(list);
+  } else {
+    $("mapwrap").hidden = true;
+    renderRadar(list);
+  }
+}
+
+$("viewtabs").addEventListener("click", (e) => {
+  const v = e.target.dataset?.view;
+  if (v) {
+    view = v;
+    store.set("rid-view", v);
+    if (v === "map") mapFailed = false;  // może wrócił internet
+    render();
+  }
+});
+$("fit").addEventListener("click", () => { autoFit = true; if (map) map.setZoom(5); render(); });
 
 function renderRadar(list) {
   const pts = [];
@@ -457,22 +629,59 @@ $("list").addEventListener("change", (e) => {
   if (nm) names[d.id] = nm; else delete names[d.id];
   store.set("rid-names", names);
 });
-$("wake").addEventListener("change", async (e) => {
+// ---- ustawienia zapamiętane w telefonie
+const PREFS = ["sound", "wake", "hideown"];
+const prefs = store.get("rid-prefs", {});
+for (const id of PREFS) if (id in prefs) $(id).checked = prefs[id];
+for (const id of PREFS) {
+  $(id).addEventListener("change", (e) => { prefs[id] = e.target.checked; store.set("rid-prefs", prefs); });
+}
+
+async function applyWake() {
   try {
-    if (e.target.checked) wakeLock = await navigator.wakeLock.request("screen");
-    else { await wakeLock?.release(); wakeLock = null; }
-  } catch { e.target.checked = false; }
-});
-document.addEventListener("visibilitychange", async () => {
-  // przeglądarka zwalnia blokadę ekranu, gdy karta jest w tle - po powrocie bierzemy ją znowu
-  if (document.visibilityState === "visible" && $("wake").checked) {
-    try { wakeLock = await navigator.wakeLock.request("screen"); } catch { /* brak */ }
+    if ($("wake").checked) {
+      if (!wakeLock || wakeLock.released) wakeLock = await navigator.wakeLock.request("screen");
+    } else { await wakeLock?.release(); wakeLock = null; }
+    return true;
+  } catch { return false; }
+}
+$("wake").addEventListener("change", async (e) => {
+  if (!(await applyWake()) && e.target.checked) {
+    e.target.checked = false;
+    prefs.wake = false;
+    store.set("rid-prefs", prefs);
   }
 });
+document.addEventListener("visibilitychange", () => {
+  // przeglądarka zwalnia blokadę ekranu, gdy karta jest w tle - po powrocie bierzemy ją znowu
+  if (document.visibilityState === "visible") applyWake();
+});
+// po odświeżeniu: blokada ekranu i dźwięk; część przeglądarek wymaga do tego dotknięcia strony
+applyWake();
+document.addEventListener("pointerdown", () => { unlockAudio(); applyWake(); }, { once: true });
+
+// ---- po odświeżeniu łączymy się sami z wcześniej wybranym Heltec (bez okna wyboru i PIN-u)
+async function autoReconnect() {
+  if (!store.get("rid-auto", false) || !navigator.bluetooth?.getDevices || !window.isSecureContext) return;
+  let known;
+  try { known = (await navigator.bluetooth.getDevices()).find((d) => (d.name || "").startsWith("RID-Heltec")); } catch { return; }
+  if (!known) return;
+  setConn("łączę automatycznie…", "");
+  attach(known);
+  try { await known.gatt.connect(); } catch {
+    // płytka jeszcze nieosiągalna - czekamy na jej reklamę
+    if (known.watchAdvertisements) {
+      known.addEventListener("advertisementreceived", () => { if (wantConnected && !rx) openGatt(); }, { once: true });
+      try { await known.watchAdvertisements(); } catch { /* brak wsparcia */ }
+      return;
+    }
+  }
+  openGatt();
+}
 // odświeżanie wieku danych, gdy płytka nic nie przysyła; bez przerysowania w trakcie wpisywania nazwy
 setInterval(() => { if (document.activeElement?.id !== "nameinp") render(); }, 2000);
 
-checkSupport();
+if (checkSupport()) autoReconnect();
 if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
