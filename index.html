@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<title>RID Heltec</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0f1419; --panel: #161d24; --panel2: #1d262f; --line: #2a3540;
+    --text: #dbe4ec; --muted: #8a99a8; --accent: #3fb6ff;
+    --ok: #3ccf7a; --warn: #f0b429; --bad: #ff4d4f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { padding: 0 12px calc(16px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0 8px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0; flex: 1; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 12px; display: block; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 13px; font-size: 14px; cursor: pointer; }
+  button.primary { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 600; }
+  button.own { border-color: var(--ok); color: var(--ok); }
+  button.foreign { border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .5; }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); }
+  .pill.on { color: var(--ok); border-color: var(--ok); }
+  .pill.off { color: var(--bad); border-color: var(--bad); }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 8px 0; color: var(--muted); font-size: 13px; }
+  .bar b { color: var(--text); font-weight: 600; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    margin: 10px 0; font-size: 14px; }
+  .note.bad { border-color: var(--bad); }
+  .alert { background: var(--bad); color: #fff; border-radius: 10px; padding: 10px 12px; margin: 10px 0;
+    font-weight: 600; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .alert button { background: rgba(0,0,0,.25); color: #fff; border-color: rgba(255,255,255,.4); padding: 5px 10px; }
+  #radarwrap { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; padding: 6px; }
+  #radar { width: 100%; height: auto; display: block; aspect-ratio: 1; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+  .card.own { border-left-color: var(--ok); }
+  .card.foreign { border-left-color: var(--bad); }
+  .card.stale { opacity: .55; }
+  .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .uid { font-weight: 600; font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+  .tag { font-size: 11px; padding: 1px 8px; border-radius: 9px; font-weight: 700; white-space: nowrap; }
+  .tag.own { background: var(--ok); color: #0f1419; }
+  .tag.foreign { background: var(--bad); color: #fff; }
+  .tag.none { border: 1px solid var(--line); color: var(--muted); font-weight: 400; }
+  .nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 2px 12px;
+    margin-top: 6px; font-size: 14px; color: var(--muted); }
+  .nums b { color: var(--text); }
+  .dist { font-size: 18px; color: var(--text); font-weight: 700; }
+  .arrow { display: inline-block; transition: transform .3s; }
+  .more { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .more input { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 10px; font-size: 15px; width: 100%; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row a { color: var(--accent); }
+  .empty { color: var(--muted); text-align: center; padding: 26px 8px; }
+  label.chk { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RID Heltec <small id="devname">nie połączono</small></h1>
+  <span id="conn" class="pill off">rozłączono</span>
+  <button id="connect" class="primary">Połącz</button>
+</header>
+
+<div id="support" class="note bad" hidden></div>
+<div id="pinhint" class="note">Przy pierwszym połączeniu telefon zapyta o <b>PIN</b>. Jest na ekranie Heltec
+  w trakcie parowania oraz na stronie RID Decoder (panel Urządzenia → Heltec). Potem telefon łączy się bez PIN-u.</div>
+<div id="alerts"></div>
+
+<div class="bar" id="status"></div>
+<div class="bar">
+  <label class="chk"><input type="checkbox" id="sound" checked> dźwięk i wibracja</label>
+  <label class="chk"><input type="checkbox" id="wake"> ekran nie gaśnie</label>
+  <label class="chk"><input type="checkbox" id="hideown"> ukryj swoje</label>
+  <span id="gps">GPS telefonu: —</span>
+</div>
+
+<div id="radarwrap" hidden><svg id="radar" viewBox="-110 -110 220 220"></svg></div>
+<div id="list"><div class="empty">Połącz się z Heltec, żeby zobaczyć drony w zasięgu.</div></div>
+<div class="row" style="margin-top:10px">
+  <button id="clearlist">Wyczyść listę</button>
+</div>
+<p class="note" style="color:var(--muted);font-size:13px">
+  Telefon łączy się z płytką Heltec (firmware RID 1.4+) przez Bluetooth: na Androidzie w Chrome,
+  na iPhonie w przeglądarce Bluefy. Oznaczenia swój/obcy zapisuje Heltec i przekazuje je na stronę
+  RID Decoder po podłączeniu do komputera. Odległości liczone są z GPS telefonu.
+</p>
+
+<script>
+"use strict";
+const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const STALE_S = 30;          // bez nowych danych dłużej - dron szary
+const REALERT_S = 300;       // ten sam dron alarmuje ponownie po 5 min nieobecności
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (v, unit = "", d = 0) => (v === undefined || v === null ? "—" : `${Number(v).toFixed(d)}${unit}`);
+const store = {
+  get(k, def) { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* tryb prywatny */ } },
+};
+
+let device = null, rx = null, wantConnected = false, buffer = "", failures = 0;
+let drones = new Map();        // klucz -> {..dane z płytki, seen: ms, first: ms}
+let tags = {};                 // UAS ID -> own | foreign (z płytki)
+let names = store.get("rid-names", {});  // UAS ID -> nazwa (tylko na tym telefonie)
+let status = null, me = null, expanded = null, wakeLock = null;
+const alerted = new Map();     // klucz -> ostatni alarm (ms)
+
+// ---------------------------------------------------------------- Bluetooth
+
+function checkSupport() {
+  const el = $("support");
+  if (!window.isSecureContext) {
+    el.hidden = false;
+    el.innerHTML = "Ta strona musi być otwarta przez <b>https://</b> (albo localhost), inaczej przeglądarka nie pozwoli na Bluetooth.";
+    return false;
+  }
+  if (!navigator.bluetooth) {
+    el.hidden = false;
+    el.innerHTML = /iPhone|iPad/.test(navigator.userAgent)
+      ? "Safari na iPhonie nie obsługuje Bluetooth na stronach. Zainstaluj darmową przeglądarkę <b>Bluefy</b> z App Store i otwórz w niej tę stronę."
+      : "Ta przeglądarka nie obsługuje Web Bluetooth. Na Androidzie użyj <b>Chrome</b>, na iPhonie przeglądarki <b>Bluefy</b>.";
+    return false;
+  }
+  return true;
+}
+
+async function connect() {
+  if (!checkSupport()) return;
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "RID-Heltec" }, { services: [NUS] }], optionalServices: [NUS],
+    });
+  } catch { return; }  // użytkownik zamknął okno wyboru
+  wantConnected = true;
+  failures = 0;
+  device.addEventListener("gattserverdisconnected", onDisconnected);
+  unlockAudio();
+  await openGatt();
+  startGps();
+}
+
+async function openGatt() {
+  setConn("łączę…", "");
+  try {
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(NUS);
+    rx = await svc.getCharacteristic(NUS_RX);
+    const tx = await svc.getCharacteristic(NUS_TX);
+    tx.addEventListener("characteristicvaluechanged", onData);
+    await tx.startNotifications();
+    buffer = "";
+    failures = 0;
+    $("devname").textContent = device.name || "Heltec";
+    setConn("połączono", "on");
+    $("connect").textContent = "Rozłącz";
+    $("pinhint").hidden = true;
+  } catch (e) {
+    // najczęściej: anulowane okno parowania albo zły PIN - nie pytamy w kółko
+    failures++;
+    if (failures >= 2) {
+      wantConnected = false;
+      if (device.gatt.connected) device.gatt.disconnect();
+      setConn("nie sparowano", "off");
+      $("connect").textContent = "Połącz";
+      $("pinhint").hidden = false;
+      $("pinhint").innerHTML = "<b>Nie udało się połączyć.</b> Sprawdź PIN na ekranie Heltec (albo na stronie RID Decoder) "
+        + "i spróbuj ponownie. Jeśli telefon był wcześniej sparowany z tą płytką, usuń ją w ustawieniach Bluetooth telefonu.";
+      return;
+    }
+    setConn("błąd połączenia", "off");
+    if (wantConnected) setTimeout(() => wantConnected && !device.gatt.connected && openGatt(), 3000);
+  }
+}
+
+function onDisconnected() {
+  rx = null;
+  setConn(wantConnected ? "ponowne łączenie…" : "rozłączono", "off");
+  $("connect").textContent = wantConnected ? "Rozłącz" : "Połącz";
+  if (wantConnected) setTimeout(() => wantConnected && openGatt(), 2000);
+}
+
+function disconnect() {
+  wantConnected = false;
+  if (device?.gatt.connected) device.gatt.disconnect();
+  $("connect").textContent = "Połącz";
+  setConn("rozłączono", "off");
+}
+
+function setConn(text, cls) {
+  $("conn").textContent = text;
+  $("conn").className = `pill ${cls}`;
+}
+
+async function send(cmd) {
+  if (!rx) return false;
+  const data = new TextEncoder().encode(cmd + "\n");
+  try {
+    if (rx.writeValueWithResponse) await rx.writeValueWithResponse(data);
+    else await rx.writeValue(data);
+    return true;
+  } catch { return false; }
+}
+
+function onData(e) {
+  buffer += new TextDecoder().decode(e.target.value);
+  let i;
+  while ((i = buffer.indexOf("\n")) >= 0) {
+    const line = buffer.slice(0, i).trim();
+    buffer = buffer.slice(i + 1);
+    if (!line) continue;
+    let msg;
+    try { msg = JSON.parse(line); } catch { continue; }
+    if (msg.d) onDrone(msg.d);
+    else if (msg.s) { status = msg.s; renderStatus(); }
+    else if (msg.tags) { tags = msg.tags; render(); }
+  }
+  if (buffer.length > 4000) buffer = "";  // zabezpieczenie przed zgubionym końcem linii
+}
+
+// ---------------------------------------------------------------- dane
+
+function keyOf(d) { return d.id || `mac:${d.mac}`; }
+function tagOf(d) { return (d.id && tags[d.id]) || d.tag || null; }
+
+function onDrone(d) {
+  const k = keyOf(d);
+  const now = Date.now();
+  const prev = drones.get(k);
+  // dron bez ID mógł już być na liście pod adresem MAC - przenosimy go pod ID
+  if (d.id && drones.has(`mac:${d.mac}`)) {
+    const old = drones.get(`mac:${d.mac}`);
+    drones.delete(`mac:${d.mac}`);
+    if (!prev) drones.set(k, { ...old });
+    if (alerted.has(`mac:${d.mac}`)) alerted.set(k, alerted.get(`mac:${d.mac}`));
+  }
+  const seen = now - (d.age || 0) * 1000;
+  const before = drones.get(k);
+  const merged = { ...(before || { first: seen }), ...d, seen };
+  drones.set(k, merged);
+  // alarm: pierwszy raz albo po powrocie po dłuższej nieobecności; swoje nigdy
+  const returning = before && seen - before.seen > REALERT_S * 1000;
+  const waitForId = !d.id && now - merged.first < 8000;  // chwila na Basic ID, żeby nie alarmować dwa razy
+  if (tagOf(merged) !== "own" && !waitForId && (!alerted.has(k) || returning)) {
+    alerted.set(k, now);
+    raiseAlert(merged);
+  }
+  scheduleRender();
+}
+
+let renderTimer = null;
+function scheduleRender() {
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => { renderTimer = null; render(); }, 300);
+}
+
+// ---------------------------------------------------------------- alarmy
+
+let audio = null;
+function unlockAudio() {
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* brak */ }
+}
+function beep() {
+  if (!audio) return;
+  [0, 0.2, 0.4].forEach((t) => {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = 880; g.gain.value = 0.2;
+    o.connect(g).connect(audio.destination);
+    o.start(audio.currentTime + t); o.stop(audio.currentTime + t + 0.12);
+  });
+}
+function raiseAlert(d) {
+  const tag = tagOf(d);
+  if ($("sound").checked) {
+    beep();
+    if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 300]);
+  }
+  const el = document.createElement("div");
+  el.className = "alert";
+  el.innerHTML = `<span>⚠ ${tag === "foreign" ? "OBCY" : "Nowy"} dron: ${esc(names[d.id] || d.id || "bez ID")}</span><button>OK</button>`;
+  el.querySelector("button").onclick = () => el.remove();
+  $("alerts").prepend(el);
+  setTimeout(() => el.remove(), 60000);
+}
+
+// ---------------------------------------------------------------- GPS telefonu
+
+function startGps() {
+  if (!navigator.geolocation || startGps.on) return;
+  startGps.on = true;
+  navigator.geolocation.watchPosition((p) => {
+    me = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy };
+    $("gps").textContent = `GPS telefonu: ±${Math.round(me.acc)} m`;
+    scheduleRender();
+  }, () => { $("gps").textContent = "GPS telefonu: brak zgody / sygnału"; },
+  { enableHighAccuracy: true, maximumAge: 5000 });
+}
+
+function geo(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, R = 6371000;
+  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
+  const dist = 2 * R * Math.asin(Math.sqrt(a));
+  const y = Math.sin(dLon) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos(dLon);
+  return { dist, brg: (Math.atan2(y, x) / r + 360) % 360 };
+}
+const CARD = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const cardinal = (b) => CARD[Math.round(b / 45) % 8];
+const distText = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 2 : 1)} km`);
+
+// ---------------------------------------------------------------- widok
+
+function renderStatus() {
+  const s = status;
+  if (!s) { $("status").innerHTML = ""; return; }
+  const bat = s.bat >= 0 ? `<b style="color:${s.bat <= 15 ? "var(--bad)" : s.bat <= 35 ? "var(--warn)" : "var(--ok)"}">${s.bat}%</b>` : "<b>USB</b>";
+  $("status").innerHTML = `<span>bateria ${bat}</span><span>zapisane <b>${s.mem}</b></span>
+    <span>kanał Wi-Fi <b>${s.ch}${s.fixed ? "" : "*"}</b></span>
+    <span>Meshtastic <b>${s.mesh ? "nadaje" : "wył."}</b></span>
+    ${s.pc ? "<span><b>podłączony do PC</b></span>" : ""}
+    ${s.pend ? `<span>oznaczeń do przeniesienia na stronę: <b>${s.pend}</b></span>` : ""}`;
+}
+
+function tagBadge(t) {
+  return t === "own" ? '<span class="tag own">SWÓJ</span>' : t === "foreign" ? '<span class="tag foreign">OBCY</span>' : '<span class="tag none">nieoznaczony</span>';
+}
+
+function render() {
+  const now = Date.now();
+  const hideOwn = $("hideown").checked;
+  const list = [...drones.entries()]
+    .map(([k, d]) => ({ k, d, tag: tagOf(d), age: (now - d.seen) / 1000 }))
+    .filter((x) => !(hideOwn && x.tag === "own"))
+    .sort((a, b) => (a.age > STALE_S) - (b.age > STALE_S) || a.age - b.age);
+
+  if (!list.length) {
+    $("list").innerHTML = `<div class="empty">${rx ? "Brak dronów w zasięgu. Heltec nasłuchuje…" : "Połącz się z Heltec, żeby zobaczyć drony w zasięgu."}</div>`;
+  } else {
+    $("list").innerHTML = list.map(({ k, d, tag, age }) => {
+      const pos = d.lat !== undefined && me ? geo(me.lat, me.lon, d.lat, d.lon) : null;
+      const op = d.olat !== undefined && me ? geo(me.lat, me.lon, d.olat, d.olon) : null;
+      const opDrone = d.olat !== undefined && d.lat !== undefined ? geo(d.olat, d.olon, d.lat, d.lon).dist : null;
+      const name = names[d.id];
+      let h = `<div class="card ${tag || ""} ${age > STALE_S ? "stale" : ""}" data-k="${esc(k)}">
+        <div class="top"><div><div class="uid">${esc(name || d.id || "bez ID (" + d.mac + ")")}</div>
+          ${name ? `<div style="color:var(--muted);font-size:12px">${esc(d.id)}</div>` : ""}</div>${tagBadge(tag)}</div>`;
+      if (pos) h += `<div style="margin-top:6px"><span class="dist">${distText(pos.dist)}</span>
+        <span class="arrow" style="transform:rotate(${pos.brg}deg)">↑</span> ${cardinal(pos.brg)} ${Math.round(pos.brg)}°</div>`;
+      h += `<div class="nums">
+        <span>wys. <b>${fmt(d.h ?? d.alt, " m")}</b></span>
+        <span>prędk. <b>${fmt(d.spd, " m/s", 1)}</b></span>
+        <span>kurs <b>${fmt(d.trk, "°")}</b></span>
+        <span>RSSI <b>${fmt(d.rssi, " dBm")}</b></span>
+        <span>operator <b>${op ? `${distText(op.dist)} ${cardinal(op.brg)}` : opDrone !== null ? `${distText(opDrone)} od drona` : "—"}</b></span>
+        <span>${age < 2 ? "teraz" : `${Math.round(age)} s temu`}</span>
+        ${d.lat === undefined ? "<span>brak pozycji drona</span>" : ""}
+      </div>`;
+      if (expanded === k) {
+        h += `<div class="more">
+          <input id="nameinp" maxlength="40" placeholder="nazwa na tym telefonie, np. Mavic 3T OSP" value="${esc(name || "")}" ${d.id ? "" : "disabled"}>
+          <div class="row">
+            <button class="own" data-act="own" ${d.id ? "" : "disabled"}>Swój</button>
+            <button class="foreign" data-act="foreign" ${d.id ? "" : "disabled"}>Obcy</button>
+            ${tag ? `<button data-act="-">Usuń oznaczenie</button>` : ""}
+          </div>
+          <div class="row">
+            ${d.lat !== undefined ? `<a href="https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lon}" target="_blank" rel="noopener">dron w Mapach</a>` : ""}
+            ${d.olat !== undefined ? `<a href="https://www.google.com/maps/search/?api=1&query=${d.olat},${d.olon}" target="_blank" rel="noopener">operator w Mapach</a>` : ""}
+          </div>
+          ${d.id ? "" : '<div style="color:var(--muted);font-size:12px">Dron bez UAS ID - nie da się go oznaczyć na stałe.</div>'}
+        </div>`;
+      }
+      return h + "</div>";
+    }).join("");
+  }
+  renderRadar(list);
+}
+
+function renderRadar(list) {
+  const pts = [];
+  if (me) {
+    for (const { d, tag } of list) {
+      if (d.lat !== undefined) pts.push({ ...geo(me.lat, me.lon, d.lat, d.lon), kind: "d", tag, label: (names[d.id] || d.id || "?").slice(-6) });
+      if (d.olat !== undefined) pts.push({ ...geo(me.lat, me.lon, d.olat, d.olon), kind: "o" });
+    }
+  }
+  $("radarwrap").hidden = !pts.length;
+  if (!pts.length) return;
+  const max = Math.max(...pts.map((p) => p.dist), 50);
+  const scale = [50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 20000].find((s) => s >= max) || max;
+  let svg = "";
+  for (let i = 1; i <= 4; i++) {
+    const r = (100 * i) / 4;
+    svg += `<circle r="${r}" fill="none" stroke="#2a3540" stroke-width="0.6"/>`;
+    svg += `<text x="2" y="${-r + 6}" fill="#8a99a8" font-size="6">${distText((scale * i) / 4)}</text>`;
+  }
+  svg += '<line x1="0" y1="-104" x2="0" y2="104" stroke="#2a3540" stroke-width="0.5"/><line x1="-104" y1="0" x2="104" y2="0" stroke="#2a3540" stroke-width="0.5"/>';
+  svg += '<text x="0" y="-103" fill="#3fb6ff" font-size="8" text-anchor="middle">N</text>';
+  svg += '<circle r="3" fill="#3fb6ff"/>';
+  for (const p of pts) {
+    const r = (100 * p.dist) / scale, a = (p.brg * Math.PI) / 180;
+    const x = r * Math.sin(a), y = -r * Math.cos(a);
+    if (p.kind === "o") {
+      svg += `<rect x="${x - 2.5}" y="${y - 2.5}" width="5" height="5" fill="#f0b429"/>`;
+    } else {
+      const c = p.tag === "own" ? "#3ccf7a" : p.tag === "foreign" ? "#ff4d4f" : "#f0b429";
+      svg += `<circle cx="${x}" cy="${y}" r="4.5" fill="${c}" stroke="#000" stroke-width="0.8"/>`;
+      svg += `<text x="${x + 6}" y="${y + 3}" fill="#dbe4ec" font-size="7">${esc(p.label)}</text>`;
+    }
+  }
+  $("radar").innerHTML = svg;
+}
+
+// ---------------------------------------------------------------- obsługa
+
+$("connect").addEventListener("click", () => (wantConnected ? disconnect() : connect()));
+$("hideown").addEventListener("change", render);
+$("clearlist").addEventListener("click", () => { drones.clear(); render(); });
+$("list").addEventListener("click", async (e) => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  const k = card.dataset.k, d = drones.get(k);
+  const act = e.target.dataset?.act;
+  if (act && d?.id) {
+    const nm = $("nameinp")?.value.trim();
+    if (nm) names[d.id] = nm; else delete names[d.id];
+    store.set("rid-names", names);
+    if (await send(`TAG ${d.id} ${act}`)) {
+      if (act === "-") delete tags[d.id]; else tags[d.id] = act;
+    }
+    render();
+    return;
+  }
+  if (e.target.closest(".more")) return;
+  expanded = expanded === k ? null : k;
+  render();
+});
+$("list").addEventListener("change", (e) => {
+  if (e.target.id !== "nameinp") return;
+  const d = drones.get(e.target.closest(".card").dataset.k);
+  if (!d?.id) return;
+  const nm = e.target.value.trim();
+  if (nm) names[d.id] = nm; else delete names[d.id];
+  store.set("rid-names", names);
+});
+$("wake").addEventListener("change", async (e) => {
+  try {
+    if (e.target.checked) wakeLock = await navigator.wakeLock.request("screen");
+    else { await wakeLock?.release(); wakeLock = null; }
+  } catch { e.target.checked = false; }
+});
+document.addEventListener("visibilitychange", async () => {
+  // przeglądarka zwalnia blokadę ekranu, gdy karta jest w tle - po powrocie bierzemy ją znowu
+  if (document.visibilityState === "visible" && $("wake").checked) {
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch { /* brak */ }
+  }
+});
+// odświeżanie wieku danych, gdy płytka nic nie przysyła; bez przerysowania w trakcie wpisywania nazwy
+setInterval(() => { if (document.activeElement?.id !== "nameinp") render(); }, 2000);
+
+checkSupport();
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
