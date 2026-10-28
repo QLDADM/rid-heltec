@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#0f1419">
 <title>RID Heltec</title>
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   :root {
     --bg: #0f1419; --panel: #161d24; --panel2: #1d262f; --line: #2a3540;
@@ -20,6 +21,7 @@
   header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0 8px;
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
   h1 { font-size: 17px; margin: 0; flex: 1; }
+  h1 .logo { width: 26px; height: 26px; vertical-align: -6px; margin-right: 8px; border-radius: 6px; }
   h1 small { color: var(--muted); font-weight: 400; font-size: 12px; display: block; }
   button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
     padding: 9px 13px; font-size: 14px; cursor: pointer; }
@@ -80,7 +82,7 @@
 </head>
 <body>
 <header>
-  <h1>RID Heltec <small id="devname">nie połączono</small></h1>
+  <h1><img src="favicon.png" alt="" class="logo">RID Heltec <small id="devname">nie połączono</small></h1>
   <span id="conn" class="pill off">rozłączono</span>
   <button id="connect" class="primary">Połącz</button>
 </header>
