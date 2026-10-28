@@ -26,6 +26,8 @@
   button.primary { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 600; }
   button.own { border-color: var(--ok); color: var(--ok); }
   button.foreign { border-color: var(--bad); color: var(--bad); }
+  button.own.active { background: var(--ok); color: #0f1419; font-weight: 700; }
+  button.foreign.active { background: var(--bad); color: #fff; font-weight: 700; }
   button:disabled { opacity: .5; }
   .pill { font-size: 12px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); }
   .pill.on { color: var(--ok); border-color: var(--ok); }
@@ -487,8 +489,8 @@ function render() {
         h += `<div class="more">
           <input id="nameinp" maxlength="40" placeholder="nazwa na tym telefonie, np. Mavic 3T OSP" value="${esc(name || "")}" ${d.id ? "" : "disabled"}>
           <div class="row">
-            <button class="own" data-act="own" ${d.id ? "" : "disabled"}>Swój</button>
-            <button class="foreign" data-act="foreign" ${d.id ? "" : "disabled"}>Obcy</button>
+            <button class="own ${tag === "own" ? "active" : ""}" data-act="own" ${d.id ? "" : "disabled"}>${tag === "own" ? "✓ " : ""}Swój</button>
+            <button class="foreign ${tag === "foreign" ? "active" : ""}" data-act="foreign" ${d.id ? "" : "disabled"}>${tag === "foreign" ? "✓ " : ""}Obcy</button>
             ${tag ? `<button data-act="-">Usuń oznaczenie</button>` : ""}
           </div>
           <div class="row">
@@ -703,10 +705,17 @@ $("list").addEventListener("click", async (e) => {
     const nm = $("nameinp")?.value.trim();
     if (nm) names[d.id] = nm; else delete names[d.id];
     store.set("rid-names", names);
-    if (await send(`TAG ${d.id} ${act}`)) {
-      if (act === "-") delete tags[d.id]; else tags[d.id] = act;
-    }
+    // od razu widać wybór; gdy Heltec nie przyjmie polecenia - wracamy do poprzedniego
+    const before = { tag: tags[d.id], dtag: d.tag };
+    if (act === "-") delete tags[d.id]; else tags[d.id] = act;
+    d.tag = act === "-" ? undefined : act;
     render();
+    if (!(await send(`TAG ${d.id} ${act}`))) {
+      if (before.tag) tags[d.id] = before.tag; else delete tags[d.id];
+      d.tag = before.dtag;
+      alert("Nie zapisano oznaczenia - sprawdź połączenie z Heltec.");
+      render();
+    }
     return;
   }
   if (e.target.closest(".more")) return;
