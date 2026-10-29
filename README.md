@@ -9,3 +9,7 @@ wysokość, prędkość, operatora oraz oznaczenia swój/obcy.
 - Strona nie zawiera ani nie wysyła żadnych danych. Wszystko idzie tylko między telefonem a płytką.
 
 Źródło: projekt rid-decoder (`server/app/static/phone/`). Tę kopię aktualizuje się przez skopiowanie plików i push.
+
+## Firmware płytki
+
+Kod źródłowy i gotowy plik do wgrania są w katalogu [firmware/](firmware/). Instrukcja jest w [firmware/README.md](firmware/README.md).
