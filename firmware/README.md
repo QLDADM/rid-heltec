@@ -17,8 +17,9 @@ https://flasher.meshtastic.org.
 
 Plik [release/rid-heltec-v3-full.bin](release/rid-heltec-v3-full.bin) zawiera cały obraz pamięci i wgrywa się od adresu 0x0.
 
-- Przeglądarka (Chrome lub Edge): https://espressif.github.io/esptool-js/. Wybierz Connect, potem port płytki,
-  adres `0x0`, ten plik i kliknij Program.
+- Przeglądarka (Chrome lub Edge): https://espressif.github.io/esptool-js/. Pole „WebUSB” zostaw puste.
+  Kliknij Connect i wybierz port płytki. Dopiero po połączeniu pojawia się tabela z polem Flash Address:
+  wpisz `0x0`, wybierz ten plik i kliknij Program.
 - Albo z wiersza poleceń:
 
 ```powershell
