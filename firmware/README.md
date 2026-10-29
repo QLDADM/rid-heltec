@@ -3,40 +3,98 @@
 Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (ASTM F3411 / Open Drone ID).
 
 - Odbiera Wi-Fi Beacon, Wi-Fi NAN, BLE 4 i BLE 5 Long Range (2,4 GHz).
-- Pokazuje drony na OLED: ekran główny, lista, szczegóły, stan płytki (przycisk PRG).
+- Pokazuje drony na OLED: ekran główny, lista, szczegóły i stan płytki (przycisk PRG).
 - Bez komputera zapisuje wykryte drony w pamięci flash (około 4,9 MB) i prowadzi historię do 32 dronów ze śladem lotu.
-- Łączy się przez Bluetooth z [podglądem na telefonie](../) (parowanie z 6-cyfrowym PIN-em, do 8 telefonów).
-- Oznaczenia swój/obcy są wspólne z telefonem i z serwerem RID Decoder.
+- Łączy się przez Bluetooth z [podglądem na telefonie](https://qldadm.github.io/rid-heltec/) (parowanie z 6-cyfrowym PIN-em, do 8 telefonów).
+- Oznaczenia swój/obcy są wspólne dla płytki, telefonu i serwera RID Decoder.
 - Może wysyłać alarmy o obcych dronach przez LoRa na kanał Meshtastic (domyślnie wyłączone).
 - Pokazuje stan baterii.
 
-Wgranie nadpisuje Meshtastic. Zrób najpierw kopię ustawień, bo Meshtastic można potem przywrócić przez
-https://flasher.meshtastic.org.
+---
 
-## Wgranie gotowego pliku
+## Wgranie krok po kroku (bez instalowania programów)
 
-Plik [release/rid-heltec-v3-full.bin](release/rid-heltec-v3-full.bin) zawiera cały obraz pamięci i wgrywa się od adresu 0x0.
+### Co jest potrzebne
 
-- Przeglądarka (Chrome lub Edge): https://espressif.github.io/esptool-js/. Pole „WebUSB” zostaw puste.
-  Kliknij Connect i wybierz port płytki. Dopiero po połączeniu pojawia się tabela z polem Flash Address:
-  wpisz `0x0`, wybierz ten plik i kliknij Program.
-- Albo z wiersza poleceń:
+- Płytka **Heltec WiFi LoRa 32 V3**, najlepiej z podłączoną anteną LoRa.
+- **Kabel USB-C do transmisji danych.** Część kabli służy tylko do ładowania i z nimi komputer nie widzi płytki.
+  Jeśli nic się nie dzieje, najpierw zmień kabel.
+- Komputer z przeglądarką **Google Chrome** albo **Microsoft Edge**. Firefox i Safari nie obsługują tej metody.
 
-```powershell
-pip install esptool
-esptool --chip esp32s3 --baud 921600 write_flash 0x0 rid-heltec-v3-full.bin
-```
+### Krok 1. Pobierz plik firmware
 
-Jeśli wgrywanie nie startuje, przytrzymaj PRG, naciśnij RST i puść PRG.
+1. Wejdź na https://github.com/QLDADM/rid-heltec/releases.
+2. Przy najnowszej wersji (np. **v1.6**) w sekcji **Assets** kliknij **`rid-heltec-v3-full.bin`**.
+3. Plik trafi do folderu **Pobrane**. Nie otwieraj go, nie rozpakowuj i nie zmieniaj mu nazwy.
 
-## Budowanie ze źródeł
+### Krok 2. Podłącz płytkę
 
-```powershell
-pip install platformio
-cd firmware
-pio run -e heltec_v3 -t upload        # pełna wersja
-pio run -e heltec_v3_wifi -t upload   # tylko Wi-Fi, bez Bluetooth
-```
+1. Podłącz Heltec kablem USB-C do komputera. Ekran płytki może się zaświecić albo nie, oba przypadki są w porządku.
+2. Zamknij programy, które mogą używać płytki: agenta RID Decoder (`start_rid.py`), aplikację Meshtastic na
+   komputerze, Arduino, monitor portu. Port może naraz używać tylko jeden program.
+3. **Windows:** płytka ma układ USB **CP2102**. Windows 10 i 11 zwykle instaluje sterownik sam w ciągu kilkudziesięciu
+   sekund. Jeśli w kroku 3 przeglądarka nie pokazuje żadnego portu, zainstaluj sterownik
+   „CP210x Universal Windows Driver” ze strony Silicon Labs:
+   https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers. Potem odłącz i podłącz płytkę ponownie.
+
+### Krok 3. Otwórz programator w przeglądarce
+
+1. W Chrome albo Edge wejdź na **https://espressif.github.io/esptool-js/**.
+2. Zostaw **puste** pole wyboru **WebUSB (CH340)** (Heltec ma inny układ USB) oraz **Show Debug log**.
+3. W sekcji **Program** zostaw **Baudrate: 921600**.
+
+### Krok 4. Połącz się z płytką
+
+1. Kliknij **Connect**.
+2. Przeglądarka pokaże okienko z listą portów. Wybierz pozycję podobną do
+   **„CP2102 USB to UART Bridge Controller (COM9)”**. Numer COM może być inny. Kliknij **Połącz**.
+3. Poczekaj kilka sekund. W czarnej konsoli na dole pojawi się tekst z **„ESP32-S3”**, a w sekcji Program
+   **pojawi się tabela z polem „Flash Address”** i przyciskiem wyboru pliku. Przed połączeniem tej tabeli nie ma.
+
+**Jeśli połączenie się nie udaje** (błąd albo brak ESP32-S3 w konsoli), wprowadź płytkę w tryb wgrywania:
+1. przytrzymaj przycisk **PRG** na płytce (drugi to **RST**),
+2. trzymając PRG, krótko naciśnij **RST**,
+3. puść **PRG**,
+4. odśwież stronę (F5) i kliknij **Connect** jeszcze raz.
+
+### Krok 5. Wgraj firmware
+
+1. W polu **Flash Address** wpisz **`0x0`** (zero, iks, zero).
+2. Kliknij **Wybierz plik** w tym samym wierszu i wskaż pobrany **`rid-heltec-v3-full.bin`**.
+3. Kliknij **Program**.
+4. Pasek postępu dojdzie do 100% w około 30–60 s. **Nie odłączaj kabla i nie zamykaj strony w trakcie.**
+5. Gdy konsola pokaże zakończenie, naciśnij na płytce przycisk **RST** albo odłącz i podłącz kabel.
+
+### Krok 6. Sprawdź, czy działa
+
+Na ekranie Heltec powinien pojawić się ekran wykrywacza z numerem kanału Wi-Fi i licznikami ramek.
+Krótkie naciśnięcie **PRG** przełącza ekrany. Jeśli ekran jest ciemny, kliknij PRG dwa razy szybko (dwuklik włącza i wyłącza ekran).
+
+Gotowe. Płytka od razu nasłuchuje i zapisuje drony, także zasilana z powerbanku.
+
+---
+
+## Co warto wiedzieć przed wgraniem
+
+- **Meshtastic zostanie nadpisany.** Jeśli płytka miała Meshtastic, zrób najpierw w aplikacji Meshtastic kopię ustawień
+  (kanały, klucze). Meshtastic można później przywrócić przez https://flasher.meshtastic.org.
+- **Ustawienia płytki są kasowane** także przy aktualizacji z wcześniejszej wersji RID:
+  - płytka wylosuje **nowy PIN**,
+  - telefony trzeba **sparować od nowa**: najpierw usuń płytkę w ustawieniach Bluetooth telefonu,
+  - ustawienia Meshtastic trzeba wysłać ponownie (ze strony RID Decoder),
+  - oznaczenia swój/obcy wrócą same po podłączeniu do komputera z agentem.
+
+  Zapisane drony i historia zostają.
+- Antena LoRa: płytka domyślnie **nie nadaje** przez LoRa. Gdy włączysz alarmy Meshtastic, antena LoRa musi być podłączona,
+  bo nadawanie bez anteny może uszkodzić radio.
+
+## Pierwsze połączenie z telefonem
+
+1. Otwórz stronę podglądu https://qldadm.github.io/rid-heltec/: na Androidzie w **Chrome**, na iPhonie w przeglądarce **Bluefy**
+   (Safari nie obsługuje Bluetooth na stronach).
+2. Kliknij **Połącz** i wybierz płytkę **RID-Heltec-XXXX**.
+3. Telefon zapyta o PIN. Wpisz **6 cyfr widocznych na ekranie Heltec**.
+4. Kolejne połączenia z tym telefonem odbywają się już bez PIN-u.
 
 ## Przycisk PRG
 
@@ -47,13 +105,41 @@ pio run -e heltec_v3_wifi -t upload   # tylko Wi-Fi, bez Bluetooth
 | przytrzymanie 2 s na stanie | kanał Wi-Fi: skakanie ↔ stały kanał 6 |
 | dwuklik | ekran wł./wył. |
 
-## Pierwsze połączenie z telefonem
+Ekran gaśnie sam po 2 minutach, a nasłuch działa dalej. Budzi go przycisk, nowy dron albo parowanie telefonu.
 
-1. Otwórz stronę podglądu: na Androidzie w Chrome, na iPhonie w przeglądarce Bluefy.
-2. Wybierz „Połącz” i płytkę **RID-Heltec-XXXX**.
-3. Wpisz PIN widoczny na OLED. Płytka losuje go przy pierwszym starcie.
+## Najczęstsze problemy
 
-## Polecenia przez USB (921600 bod)
+| Problem | Rozwiązanie |
+|---|---|
+| Po kliknięciu Connect lista portów jest pusta | Inny kabel (do transmisji danych), inny port USB, sterownik CP210x (krok 2). |
+| „Failed to connect” / „Timed out” | Tryb wgrywania: przytrzymaj PRG, naciśnij RST, puść PRG i połącz ponownie. Zamknij inne programy używające portu. |
+| Port jest zajęty | Zamknij agenta RID Decoder, aplikację Meshtastic na komputerze albo drugą kartę z esptool-js. |
+| Po wgraniu ekran jest czarny | Naciśnij RST. Jeśli dalej nic, kliknij dwa razy PRG (dwuklik włącza ekran). |
+| Telefon nie łączy się po aktualizacji | Usuń płytkę w ustawieniach Bluetooth telefonu i sparuj ponownie z nowym PIN-em. |
+
+---
+
+## Dla zaawansowanych
+
+### Wgranie z wiersza poleceń
+
+```powershell
+pip install esptool
+esptool --chip esp32s3 --baud 921600 write_flash 0x0 rid-heltec-v3-full.bin
+```
+
+### Budowanie ze źródeł
+
+```powershell
+pip install platformio
+cd firmware
+pio run -e heltec_v3 -t upload        # pełna wersja
+pio run -e heltec_v3_wifi -t upload   # tylko Wi-Fi, bez Bluetooth
+```
+
+Wgranie przez PlatformIO **nie kasuje** ustawień (PIN, telefony, Meshtastic), bo zapisuje tylko program.
+
+### Polecenia przez USB (921600 bod)
 
 | Polecenie | Działanie |
 |---|---|
