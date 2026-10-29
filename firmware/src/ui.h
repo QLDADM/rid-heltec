@@ -222,7 +222,8 @@ static void drawList() {
     int y = 13 + i * 12;
     display.drawString(0, y, String(t == TAG_OWN ? "S " : t == TAG_FOREIGN ? "O " : "? ") + shortId(d, 9));
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(127, y, (isnan(d.height) ? String("-") : String((int)d.height) + "m") + " " + String(d.rssi));
+    display.drawString(127, y, (d.wifiKind ? String("WiFi") : isnan(d.height) ? String("-") : String((int)d.height) + "m") +
+                                   " " + String(d.rssi));
     display.setTextAlignment(TEXT_ALIGN_LEFT);
   }
 }
@@ -245,6 +246,13 @@ static void drawDetail() {
   display.drawString(127, 0, t ? tagText(t) : "nieoznaczony");
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.drawString(0, 13, shortId(d, 20));
+  if (d.wifiKind) {  // dron Wi-Fi bez Remote ID
+    display.drawString(0, 25, String("Wi-Fi: ") + d.wifiKind);
+    display.drawString(0, 37, String(d.rssi) + "dBm  kanal " + String(d.wifiCh) + "  " +
+                                  String((millis() - d.lastMs) / 1000) + "s");
+    display.drawString(0, 49, "brak Remote ID");
+    return;
+  }
   String l2 = "wys " + (isnan(d.height) ? String("-") : String((int)d.height) + "m");
   if (!isnan(d.speed)) l2 += "  " + String(d.speed, 0) + "m/s";
   if (d.track >= 0) l2 += "  " + String(d.track) + "st";

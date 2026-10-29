@@ -285,6 +285,10 @@ static void meshSendWaypoint(const DroneInfo &d, const char *name, const char *d
 
 static void meshDescribe(const DroneInfo &d, char *out, size_t size, bool longForm) {
   const char *kind = tagStatus(d.id) == TAG_FOREIGN ? "OBCY" : "nieoznaczony";
+  if (d.wifiKind) {  // dron Wi-Fi bez Remote ID: bez pozycji, tylko nazwa sieci i siła sygnału
+    snprintf(out, size, "DRON Wi-Fi %s %s (%s), kanal %u, %d dBm", kind, d.id, d.wifiKind, d.wifiCh, d.rssi);
+    return;
+  }
   size_t n = longForm ? snprintf(out, size, "DRON %s %s", kind, d.id[0] ? d.id : "bez ID")
                       : snprintf(out, size, "%s", kind);
 // dopisuje kolejne pola, dopóki jest miejsce

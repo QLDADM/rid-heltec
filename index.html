@@ -476,6 +476,7 @@ function render() {
           ${name ? `<div style="color:var(--muted);font-size:12px">${esc(d.id)}</div>` : ""}</div>${tagBadge(tag)}</div>`;
       if (pos) h += `<div style="margin-top:6px"><span class="dist">${distText(pos.dist)}</span>
         <span class="arrow" style="transform:rotate(${pos.brg}deg)">↑</span> ${cardinal(pos.brg)} ${Math.round(pos.brg)}°</div>`;
+      if (d.wifi) h += `<div style="margin-top:6px"><b>dron Wi-Fi: ${esc(d.wifi)}</b> · kanał ${d.ch ?? "—"} · bez Remote ID (brak pozycji)</div>`;
       h += `<div class="nums">
         <span>wys. <b>${fmt(d.h ?? d.alt, " m")}</b></span>
         <span>prędk. <b>${fmt(d.spd, " m/s", 1)}</b></span>
@@ -485,7 +486,7 @@ function render() {
         <span>${agoText(d, age)}</span>
         ${d.hist ? `<span>z pamięci: <b>${timeText(d.histFirst)} – ${timeText(d.histLast)}</b></span>` : ""}
         ${d.maxh ? `<span>maks. wys. <b>${fmt(d.maxh, " m")}</b></span>` : ""}
-        ${d.lat === undefined ? "<span>brak pozycji drona</span>" : ""}
+        ${d.lat === undefined && !d.wifi ? "<span>brak pozycji drona</span>" : ""}
       </div>`;
       if (expanded === k) {
         h += `<div class="more">

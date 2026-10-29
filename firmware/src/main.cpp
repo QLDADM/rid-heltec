@@ -59,6 +59,7 @@ struct Frame {
 static QueueHandle_t frameQueue;
 
 #include "drones.h"
+#include "wifidrone.h"
 
 // Surowe ramki do analizy: wszystkie ramki akcji vendor-specific (m.in. NAN) oraz
 // ramki zarządzania od adresów MAC DJI. Limit: 1 ramka / s na nadawcę.
@@ -141,7 +142,8 @@ static bool isDjiMac(const uint8_t *mac) {
 
 // ---------------------------------------------------------------- Wi-Fi
 
-static void handleBeacon(const uint8_t *p, size_t len, int8_t rssi) {
+// true = beacon z Remote ID
+static bool handleBeacon(const uint8_t *p, size_t len, int8_t rssi) {
   // nagłówek MAC 24 B + timestamp 8 + interwał 2 + capability 2
   size_t i = 36;
   while (i + 2 <= len) {
@@ -150,10 +152,12 @@ static void handleBeacon(const uint8_t *p, size_t len, int8_t rssi) {
     const uint8_t *body = p + i + 2;
     if (id == 221 && ln > 5 && memcmp(body, ODID_OUI, 3) == 0 && body[3] == 0x0D) {
       enqueue(T_BEACON, p + 10, rssi, body, ln);  // adres nadawcy (addr2)
-      return;
+      wdNoteOdid(p + 10);
+      return true;
     }
     i += 2 + ln;
   }
+  return false;
 }
 
 static void handleAction(const uint8_t *p, size_t len, int8_t rssi) {
@@ -206,8 +210,13 @@ static void IRAM_ATTR wifiSniffer(void *buf, wifi_promiscuous_pkt_type_t type) {
   }
   else if (p[0] == 0xD0) allAction++;
   if (isDjiMac(p + 10) && p[0] != 0xD0) sendDiag("dji", p, len, rssi);
-  if (p[0] == 0x80) handleBeacon(p, len, rssi);
-  else if (p[0] == 0xD0) handleAction(p, len, rssi);
+  if (p[0] == 0x80) {
+    if (!handleBeacon(p, len, rssi)) wdCheck(p, len, rssi, currentChannel);
+  } else if (p[0] == 0x50) {
+    wdCheck(p, len, rssi, currentChannel);  // odpowiedź na sondowanie (dron Wi-Fi)
+  } else if (p[0] == 0xD0) {
+    handleAction(p, len, rssi);
+  }
 }
 
 static void channelTask(void *) {
@@ -647,13 +656,13 @@ static void printStatus() {
                 "\"all_beacon\":%u,\"all_action\":%u,\"all_nan\":%u,\"all_ble\":%u,\"diag\":%u,"
                 "\"all_pkts\":%u,\"best_beacon_rssi\":%d,"
                 "\"mem\":%u,\"mem_kb\":%u,\"mem_total_kb\":%u,\"fs\":%s,\"boot\":%u,\"up\":%u,"
-                "\"bat_mv\":%u,\"bat_pct\":%d,\"pin\":%u,\"bonds\":%d,\"phone\":%s}}\n",
+                "\"bat_mv\":%u,\"bat_pct\":%d,\"pin\":%u,\"bonds\":%d,\"phone\":%s,\"wifi_drone\":%u}}\n",
                 counts[T_BEACON], counts[T_NAN], counts[T_BLE], dropped, currentChannel,
                 allBeacon, allAction, allNan, allBle, diagSent, allPkts, bestBeaconRssi,
                 logCountCur + logCountOld, fsOk ? (unsigned)(LittleFS.usedBytes() / 1024) : 0,
                 fsOk ? (unsigned)(LittleFS.totalBytes() / 1024) : 0, fsOk ? "true" : "false",
                 bootId, millis() / 1000, batMv, batPct, phonePin, phoneBonds(),
-                phoneConnected ? (phoneSecure ? "\"ok\"" : "\"parowanie\"") : "null");
+                phoneConnected ? (phoneSecure ? "\"ok\"" : "\"parowanie\"") : "null", wdSeen);
 }
 
 static void handleSerialCommand() {
@@ -668,7 +677,7 @@ static void handleSerialCommand() {
         lastHostMs = millis();
       }
       if (strcasecmp(buf, "ID") == 0) {  // agent PC rozpoznaje płytkę po tej odpowiedzi
-        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.6\"}");
+        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.7\"}");
         printStatus();
         meshPrintStatus(Serial);
       } else if (strncasecmp(buf, "TIME ", 5) == 0) {
@@ -751,6 +760,7 @@ void setup() {
 
   frameQueue = xQueueCreate(32, sizeof(Frame));
   diagQueue = xQueueCreate(16, sizeof(Diag));
+  wdBegin();
 
   // Wi-Fi w trybie nasłuchu (bez łączenia z siecią)
   WiFi.mode(WIFI_STA);
@@ -801,6 +811,19 @@ void loop() {
     lastRssi = f.rssi;
     lastFrameMs = millis();
     digitalWrite(PIN_LED, HIGH);
+  }
+  WdEvent we;
+  while (xQueueReceive(wdQueue, &we, 0) == pdTRUE) {  // dron Wi-Fi bez Remote ID
+    DroneInfo *dr = wdApply(we);
+    if (!dr->shown) {
+      dr->shown = true;
+      uiWake();
+      if (tagStatus(dr->id) != TAG_OWN) uiToast((String("DRON WI-FI ") + dr->id).c_str());
+    }
+    wdPrint(Serial, *dr);
+    strlcpy(lastId, dr->id, sizeof(lastId));
+    lastRssi = we.rssi;
+    lastFrameMs = millis();
   }
   digitalWrite(PIN_LED, LOW);
   Diag d;

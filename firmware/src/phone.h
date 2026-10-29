@@ -177,6 +177,7 @@ static void phoneSendDrone(const DroneInfo &d, uint32_t now) {
   if (n < sizeof(line)) n += snprintf(line + n, sizeof(line) - n, __VA_ARGS__)
   uint8_t tag = tagStatus(d.id);
   if (tag) { PH_ADD(",\"tag\":\"%s\"", tag == TAG_OWN ? "own" : "foreign"); }
+  if (d.wifiKind) { PH_ADD(",\"wifi\":\"%s\",\"ch\":%u", d.wifiKind, d.wifiCh); }
   if (d.hasLoc) { PH_ADD(",\"lat\":%.7f,\"lon\":%.7f,\"st\":%u", d.lat * 1e-7, d.lon * 1e-7, d.status); }
   if (!isnan(d.height)) { PH_ADD(",\"h\":%.1f", d.height); }
   if (!isnan(d.altGeo)) { PH_ADD(",\"alt\":%.1f", d.altGeo); }
@@ -320,7 +321,7 @@ static void phoneTick() {
     lastStatus = now;
     char line[200];
     snprintf(line, sizeof(line),
-             "{\"s\":{\"fw\":\"1.6\",\"bat\":%d,\"bmv\":%u,\"mem\":%u,\"ch\":%u,\"fixed\":%s,\"pc\":%s,"
+             "{\"s\":{\"fw\":\"1.7\",\"bat\":%d,\"bmv\":%u,\"mem\":%u,\"ch\":%u,\"fixed\":%s,\"pc\":%s,"
              "\"mesh\":%s,\"up\":%u,\"pend\":%u,\"hist\":%d}}\n",
              batPct, batMv, logCountCur + logCountOld, currentChannel, fixedChannel ? "true" : "false",
              hostConnected() ? "true" : "false", meshRadioOk ? "true" : "false", millis() / 1000, tagPendingCount,

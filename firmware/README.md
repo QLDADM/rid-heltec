@@ -1,4 +1,4 @@
-# Firmware RID dla Heltec WiFi LoRa 32 V3 (wersja 1.6)
+# Firmware RID dla Heltec WiFi LoRa 32 V3 (wersja 1.7)
 
 Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (ASTM F3411 / Open Drone ID).
 
@@ -7,6 +7,7 @@ Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (A
 - Bez komputera zapisuje wykryte drony w pamięci flash (około 4,9 MB) i prowadzi historię do 32 dronów ze śladem lotu.
 - Łączy się przez Bluetooth z [podglądem na telefonie](https://qldadm.github.io/rid-heltec/) (parowanie z 6-cyfrowym PIN-em, do 8 telefonów).
 - Oznaczenia swój/obcy są wspólne dla płytki, telefonu i serwera RID Decoder.
+- Wykrywa też drony Wi-Fi bez Remote ID (DJI Tello, Parrot, zabawkowe drony z kamerą Wi-Fi) po nazwie sieci albo producencie.
 - Może wysyłać alarmy o obcych dronach przez LoRa na kanał Meshtastic (domyślnie wyłączone).
 - Pokazuje stan baterii.
 

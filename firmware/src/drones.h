@@ -25,6 +25,10 @@ struct DroneInfo {
   bool alerted;
   bool shown;  // nowy dron już obudził ekran
   uint32_t lastWaypointMs;
+  // dron Wi-Fi bez Remote ID (wifidrone.h): rodzaj, kanał; id = nazwa sieci
+  const char *wifiKind;  // nullptr = dron Remote ID
+  uint8_t wifiCh;
+  uint32_t wifiPrintMs;
 };
 
 static DroneInfo drones[MAX_DRONES];
