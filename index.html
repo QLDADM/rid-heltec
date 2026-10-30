@@ -701,11 +701,10 @@ function renderMap(list) {
 }
 
 async function renderViews(list) {
-  const hasPos = list.some(({ d }) => d.lat !== undefined);
-  $("viewtabs").hidden = !(hasPos || me);
+  $("viewtabs").hidden = false;  // mapa widoczna od razu, także bez drona z pozycją i bez GPS telefonu
   document.querySelectorAll("#viewtabs [data-view]").forEach((b) => b.classList.toggle("sel", b.dataset.view === view));
   $("fit").hidden = view !== "map";
-  if (view === "map" && !$("viewtabs").hidden) {
+  if (view === "map") {
     $("radarwrap").hidden = true;
     $("mapwrap").hidden = false;
     const m = await ensureMap();
