@@ -314,7 +314,14 @@ static void drawDetail() {
   uint32_t age = (millis() - d.lastMs) / 1000;
   String l3 = (d.hasOp && d.hasLoc) ? "op " + String((int)distM(d.lat, d.lon, d.opLat, d.opLon)) + "m  " : String("");
   display.drawString(0, 37, l3 + String(d.rssi) + "dBm  " + String(age) + "s");
-  display.drawString(0, 49, d.hasLoc ? String(d.lat * 1e-7, 5) + " " + String(d.lon * 1e-7, 5) : String("brak pozycji"));
+  // ostatni wiersz zmienia się co 3 s: pozycja, operator, klasa i maksimum
+  String extra = String(d.euClass >= 1 && d.euClass <= 7 ? "C" + String(d.euClass - 1) + "  " : "") +
+                 (isnan(d.maxHeight) ? String("") : "maks " + String(d.maxHeight, 0) + "m");
+  String pages[3] = {d.hasLoc ? String(d.lat * 1e-7, 5) + " " + String(d.lon * 1e-7, 5) : String("brak pozycji"),
+                     d.opId[0] ? String("op ") + d.opId : String(""), extra};
+  int page = (millis() / 3000) % 3;
+  while (!pages[page].length()) page = (page + 1) % 3;
+  display.drawString(0, 49, pages[page]);
 }
 
 static void drawStatus() {

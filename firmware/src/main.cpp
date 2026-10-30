@@ -58,7 +58,7 @@ struct Frame {
 
 static QueueHandle_t frameQueue;
 
-#define FW_VERSION "1.5"  // wspólny numer dla Heltec, CYD i M5 - nowy tylko przy dużych zmianach
+#define FW_VERSION "1.6"  // wspólny numer dla Heltec, CYD i M5 - nowy tylko przy dużych zmianach
 #include "drones.h"
 #include "wifidrone.h"
 #include "hostout.h"  // od tego miejsca Serial = USB + kanał PC przez BLE

@@ -121,7 +121,7 @@
   <button id="histclear" class="foreign" title="Kasuje historię dronów zapisaną w Heltec">Wyczyść historię w Heltec</button>
 </div>
 <p class="note" style="color:var(--muted);font-size:13px">
-  Telefon łączy się z płytkami Heltec i CYD (firmware RID 1.5) przez Bluetooth: na Androidzie w Chrome,
+  Telefon łączy się z płytkami Heltec i CYD (firmware RID 1.5 lub nowszy) przez Bluetooth: na Androidzie w Chrome,
   na iPhonie w przeglądarce Bluefy. Można połączyć kilka płytek naraz - drony ze wszystkich są na jednej liście.
   Oznaczenia swój/obcy trafiają do wszystkich połączonych płytek, a z nich na stronę RID Decoder
   po podłączeniu do komputera. Odległości liczone są z GPS telefonu.
@@ -229,7 +229,7 @@ async function openGatt(b) {
       b.device.gatt.disconnect();
       setConn(b, "brak obsługi telefonu", "off");
       b.hint = "Płytka nie udostępnia części dla telefonu. Usuń ją w ustawieniach Bluetooth, sparuj ponownie, "
-        + "a jeśli to nie pomoże, sprawdź, czy ma firmware 1.5.";
+        + "a jeśli to nie pomoże, sprawdź, czy ma firmware 1.5 lub nowszy.";
       rememberBoards();
       renderBoards();
       return;

@@ -265,7 +265,7 @@ static void tagsJson(char *out, size_t size, bool pending) {
 }
 
 static void phoneSendDrone(const DroneInfo &d, uint32_t now) {
-  char line[300];
+  char line[480];
   size_t n = snprintf(line, sizeof(line), "{\"d\":{\"id\":\"%s\",\"mac\":\"%02x%02x%02x%02x%02x%02x\",\"rssi\":%d,\"age\":%u",
                       d.id, d.macs[0][0], d.macs[0][1], d.macs[0][2], d.macs[0][3], d.macs[0][4], d.macs[0][5],
                       d.rssi, (now - d.lastMs) / 1000);
@@ -280,6 +280,15 @@ static void phoneSendDrone(const DroneInfo &d, uint32_t now) {
   if (!isnan(d.speed)) { PH_ADD(",\"spd\":%.1f", d.speed); }
   if (d.track >= 0) { PH_ADD(",\"trk\":%d", d.track); }
   if (d.hasOp) { PH_ADD(",\"olat\":%.7f,\"olon\":%.7f", d.opLat * 1e-7, d.opLon * 1e-7); }
+  if (d.opId[0]) { PH_ADD(",\"opid\":\"%s\"", d.opId); }
+  if (d.selfId[0]) { PH_ADD(",\"sid\":\"%s\"", d.selfId); }
+  if (d.uaType) { PH_ADD(",\"ut\":%u", d.uaType); }
+  if (d.euClass) { PH_ADD(",\"cl\":%u,\"cat\":%u", d.euClass, d.euCat); }
+  if (!isnan(d.vspeed)) { PH_ADD(",\"vs\":%.1f", d.vspeed); }
+  if (!isnan(d.altBaro)) { PH_ADD(",\"baro\":%.1f", d.altBaro); }
+  if (!isnan(d.opAlt)) { PH_ADD(",\"oalt\":%.1f,\"olt\":%u", d.opAlt, d.opLocType); }
+  if (!isnan(d.maxHeight)) { PH_ADD(",\"mh\":%.0f", d.maxHeight); }
+  if (!isnan(d.maxSpeed)) { PH_ADD(",\"ms\":%.1f", d.maxSpeed); }
   PH_ADD("}}\n");
 #undef PH_ADD
   phoneSend(line);

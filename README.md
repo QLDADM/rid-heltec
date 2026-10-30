@@ -46,6 +46,7 @@ Po połączeniu strona pobiera też historię dronów, które płytka zapisała,
 
 ## Co widać na stronie
 
+- **Model** (znane kody DJI), klasa i kategoria UE, typ statku, opis operatora, numer operatora, prędkość pionowa, maksima lotu oraz ostrzeżenia: ponad 120 m i zanik sygnału w locie.
 - **Lista dronów** z ID, wysokością, prędkością, siłą sygnału, odległością i kierunkiem od telefonu oraz danymi operatora.
 - **Radar i mapa** z położeniem dronów, operatorów i Twoim.
 - Przyciski **Swój / Obcy**. Swoje drony nie wywołują alarmu.
@@ -79,7 +80,7 @@ Połączenie wymaga sparowania PIN-em i jest szyfrowane, więc obcy telefon nie 
 Przycisk **Dodaj płytkę** łączy kolejne płytki: Heltec i [CYD](https://github.com/QLDADM/rid-cyd). Każda ma własny
 wiersz ze stanem, a drony ze wszystkich są na jednej liście i mapie, z informacją, która płytka je widzi.
 
-## Inne wykrywacze z tym samym firmware (wersja 1.5)
+## Inne wykrywacze z tym samym firmware (wersja 1.6)
 
 - [RID CYD](https://github.com/QLDADM/rid-cyd): płytka ESP32-2432S028 z kolorowym ekranem dotykowym 2,8", radarem i zapisem na kartę SD.
 - [RID M5](https://github.com/QLDADM/rid-m5): M5StickC Plus2, mały osobisty alarm z brzęczykiem i trybem szukania drona.
