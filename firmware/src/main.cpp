@@ -818,6 +818,7 @@ static void handleSerialCommand() {
 }
 
 void setup() {
+  heltecCheckWake();  // wybudzenie z wyłączenia: tylko po przytrzymaniu PRG
   Serial.begin(921600);
   pinMode(PIN_LED, OUTPUT);
 

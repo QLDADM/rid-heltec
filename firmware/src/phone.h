@@ -418,11 +418,11 @@ static void phoneTick() {
   }
   if (now - lastStatus > PHONE_STATUS_MS) {
     lastStatus = now;
-    char line[200];
+    char line[260];
     snprintf(line, sizeof(line),
-             "{\"s\":{\"fw\":\"" FW_VERSION "\",\"bat\":%d,\"chg\":%d,\"bmv\":%u,\"mem\":%u,\"ch\":%u,\"fixed\":%s,\"pc\":%s,"
+             "{\"s\":{\"fw\":\"" FW_VERSION "\",\"name\":\"%s\",\"bat\":%d,\"chg\":%d,\"bmv\":%u,\"mem\":%u,\"ch\":%u,\"fixed\":%s,\"pc\":%s,"
              "\"mesh\":%s,\"up\":%u,\"pend\":%u,\"hist\":%d}}\n",
-             batPct, batFull ? 2 : batChg ? 1 : 0, batMv, logCountCur + logCountOld, currentChannel, fixedChannel ? "true" : "false",
+             phoneName, batPct, batFull ? 2 : batChg ? 1 : 0, batMv, logCountCur + logCountOld, currentChannel, fixedChannel ? "true" : "false",
              hostConnected() ? "true" : "false", meshRadioOk ? "true" : "false", millis() / 1000, tagPendingCount,
              histCount());
     phoneSend(line);

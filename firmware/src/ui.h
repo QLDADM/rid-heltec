@@ -1,17 +1,20 @@
 // Przycisk PRG (GPIO0) i ekrany OLED - obsługa płytki bez telefonu i komputera.
 //   krótko          - następny ekran: główny -> lista dronów -> szczegóły (kolejne drony) -> stan
 //                     -> ustawienia ekranu (tu krótko = następna opcja, na "Dalej" -> główny)
-//   przytrzymaj 2 s - szczegóły: oznaczenie drona (brak -> SWOJ -> OBCY -> brak)
+//   przytrzymaj 2 s i puść - szczegóły: oznaczenie drona (brak -> SWOJ -> OBCY -> brak)
 //                     stan: kanał Wi-Fi (skakanie <-> stały 6)
 //                     ustawienia: zmiana zaznaczonej opcji (jasność, odwrócenie, obrót; w NVS)
 //   dwuklik         - ekran wł./wył.; gaśnie sam po SCREEN_OFF_MS, budzi go przycisk,
 //                     nowy dron albo parowanie telefonu (nasłuch i zapis działają cały czas)
+//   przytrzymaj 6 s - wyłączenie (głęboki sen, pobór kilkadziesiąt µA); włączenie: przytrzymaj PRG 1 s
 // Dołączany z main.cpp po phone.h, przed drawDisplay().
 #pragma once
 
 #define PIN_BTN 0
 #define BTN_DEBOUNCE_MS 30
 #define BTN_LONG_MS 2000
+#define BTN_OFF_MS 6000     // przytrzymanie = wyłączenie
+#define BTN_ON_MS 1000      // przytrzymanie przy wybudzeniu = włączenie (krótkie dotknięcie w kieszeni nie budzi)
 #define BTN_DOUBLE_MS 350
 #define SCREEN_OFF_MS 120000UL
 #define UI_DRONE_MAX_AGE_MS 60000
@@ -149,6 +152,47 @@ static void uiDoubleClick() {
   }
 }
 
+// wyłączenie: zapis, uśpienie radia LoRa i ekranu, głęboki sen ESP32; budzi przycisk PRG
+static void heltecPowerOff() {
+  display.displayOn();
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(64, 12, "Wylaczanie");
+  display.setFont(ArialMT_Plain_10);
+  display.drawString(64, 38, "wlacz: przytrzymaj PRG 1 s");
+  display.display();
+  if (histDirty) histSave();
+  if (logFile) {
+    logFile.flush();
+    logFile.close();
+  }
+  if (!meshRadioOk) {  // po starcie SX1262 czeka w trybie gotowości (~0,6 mA) - usypiamy go
+    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+    radio.begin();
+  }
+  radio.sleep();
+  while (digitalRead(PIN_BTN) == LOW) delay(10);  // puszczony przycisk - inaczej od razu by obudził
+  delay(1500);
+  display.displayOff();
+  digitalWrite(PIN_VEXT, HIGH);  // zasilanie ekranu odłączone
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+  esp_deep_sleep_start();
+}
+
+// wybudzenie przyciskiem: włączamy się dopiero po przytrzymaniu, inaczej śpimy dalej
+static void heltecCheckWake() {
+  if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_EXT0) return;
+  pinMode(PIN_BTN, INPUT_PULLUP);
+  uint32_t t = millis();
+  while (digitalRead(PIN_BTN) == LOW) {
+    if (millis() - t >= BTN_ON_MS) return;
+    delay(10);
+  }
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+  esp_deep_sleep_start();
+}
+
 static void uiBegin() {
   pinMode(PIN_BTN, INPUT_PULLUP);
   lastActivityMs = millis();
@@ -159,7 +203,7 @@ static void uiBegin() {
 }
 
 static void uiButtonTick() {
-  static bool down = false, longFired = false, pendingShort = false;
+  static bool down = false, longFired = false, pendingShort = false, offWarned = false, wasOff = false;
   static uint32_t downMs = 0, upMs = 0;
   bool pressed = digitalRead(PIN_BTN) == LOW;
   uint32_t now = millis();
@@ -167,15 +211,25 @@ static void uiButtonTick() {
     down = true;
     downMs = now;
     longFired = false;
+    offWarned = false;
+    wasOff = !displayOn;  // przy zgaszonym ekranie przytrzymanie tylko go budzi
   }
+  // przytrzymanie: akcja po puszczeniu (2-6 s), a trzymane dalej - wyłączenie
   if (pressed && down && !longFired && now - downMs >= BTN_LONG_MS) {
     longFired = true;
     pendingShort = false;
     lastActivityMs = now;
-    uiLongPress();
+    if (!displayOn) uiWake();
   }
+  if (pressed && down && !offWarned && now - downMs >= BTN_OFF_MS - 2000) {
+    offWarned = true;
+    uiWake();
+    uiToast("Trzymaj: wylaczenie");
+  }
+  if (pressed && down && now - downMs >= BTN_OFF_MS) heltecPowerOff();
   if (!pressed && down) {
     down = false;
+    if (longFired && !offWarned && !wasOff) uiLongPress();
     if (!longFired && now - downMs > BTN_DEBOUNCE_MS) {
       if (pendingShort && now - upMs < BTN_DOUBLE_MS) {
         pendingShort = false;

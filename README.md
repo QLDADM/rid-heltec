@@ -74,6 +74,11 @@ Połączenie wymaga sparowania PIN-em i jest szyfrowane, więc obcy telefon nie 
 - [firmware/](firmware/): kod źródłowy firmware dla Heltec V3 i instrukcja wgrywania.
 - [Releases](https://github.com/QLDADM/rid-heltec/releases): gotowe pliki firmware do wgrania.
 
+## Kilka płytek naraz
+
+Przycisk **Dodaj płytkę** łączy kolejne płytki: Heltec i [CYD](https://github.com/QLDADM/rid-cyd). Każda ma własny
+wiersz ze stanem, a drony ze wszystkich są na jednej liście i mapie, z informacją, która płytka je widzi.
+
 ## Inne wykrywacze z tym samym firmware (wersja 1.5)
 
 - [RID CYD](https://github.com/QLDADM/rid-cyd): płytka ESP32-2432S028 z kolorowym ekranem dotykowym 2,8", radarem i zapisem na kartę SD.

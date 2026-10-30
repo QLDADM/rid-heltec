@@ -116,9 +116,13 @@ Na czas połączenia agent wyłącza własny skaner Bluetooth, bo drony BLE wykr
 | Akcja | Działanie |
 |---|---|
 | krótkie naciśnięcie | następny ekran: główny → lista dronów → szczegóły → stan płytki |
-| przytrzymanie 2 s na szczegółach | oznaczenie drona: brak → SWÓJ → OBCY → brak |
-| przytrzymanie 2 s na stanie | kanał Wi-Fi: skakanie ↔ stały kanał 6 |
+| przytrzymanie 2 s i puszczenie, na szczegółach | oznaczenie drona: brak → SWÓJ → OBCY → brak |
+| przytrzymanie 2 s i puszczenie, na stanie | kanał Wi-Fi: skakanie ↔ stały kanał 6 |
 | dwuklik | ekran wł./wył. |
+| **przytrzymanie 6 s** | **wyłączenie** (po 4 s pojawia się „Trzymaj: wylaczenie”) |
+| **przytrzymanie 1 s przy wyłączonej płytce** | **włączenie** |
+
+Wyłączona płytka śpi z bardzo małym poborem prądu. Krótkie dotknięcie PRG jej nie włącza, przycisk RST zawsze ją uruchamia.
 
 Ekran gaśnie sam po 2 minutach, a nasłuch działa dalej. Budzi go przycisk, nowy dron albo parowanie telefonu.
 

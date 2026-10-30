@@ -171,7 +171,9 @@ function checkSupport() {
 }
 
 const anyConnected = () => [...boards.values()].some((b) => b.rx);
-const boardLabel = (b) => (b.device.name || "płytka").replace(/^RID-/, "");
+// nazwa z Bluetooth, a gdy telefon jej nie zna (iPhone / Bluefy) - z wiersza stanu płytki
+const boardLabel = (b) => (b.device.name || b.status?.name || (b.status?.dev === "cyd" ? "CYD" : b.status ? "Heltec" : "płytka"))
+  .replace(/^RID-/, "");
 
 async function connect() {
   if (!checkSupport()) return;
