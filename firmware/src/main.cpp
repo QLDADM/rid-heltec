@@ -573,7 +573,7 @@ static uint32_t readVbat(uint8_t level) {
 
 static int8_t vbatPercent(uint16_t mv) {
   // krzywa rozładowania ogniwa Li-ion pod obciążeniem płytki (~100 mA: nasłuch Wi-Fi i BLE).
-  // Pomiar 1.8: pełna bateria (ładowarka po minucie w fazie stałego napięcia) zaraz po odłączeniu
+  // Pomiar: pełna bateria (ładowarka po minucie w fazie stałego napięcia) zaraz po odłączeniu
   // USB pokazuje ~4,06 V, więc 100% to 4,08 V, a nie 4,2 V jak dla ogniwa bez obciążenia.
   static const uint16_t MV[] = {4080, 4000, 3930, 3870, 3820, 3770, 3720, 3680, 3620, 3550, 3400, 3300};
   static const uint8_t PCT[] = {100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 0};
@@ -755,7 +755,7 @@ static void handleSerialCommand() {
         lastHostMs = millis();
       }
       if (strcasecmp(buf, "ID") == 0) {  // agent PC rozpoznaje płytkę po tej odpowiedzi
-        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.8\"}");
+        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.5\"}");
         printStatus();
         meshPrintStatus(Serial);
       } else if (strncasecmp(buf, "TIME ", 5) == 0) {

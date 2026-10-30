@@ -1,4 +1,4 @@
-# Firmware RID dla Heltec WiFi LoRa 32 V3 (wersja 1.8)
+# Firmware RID dla Heltec WiFi LoRa 32 V3 (wersja 1.5)
 
 Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (ASTM F3411 / Open Drone ID).
 
@@ -26,7 +26,7 @@ Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (A
 ### Krok 1. Pobierz plik firmware
 
 1. Wejdź na https://github.com/QLDADM/rid-heltec/releases.
-2. Przy najnowszej wersji (np. **v1.8**) w sekcji **Assets** kliknij **`rid-heltec-v3-full.bin`**.
+2. Przy najnowszej wersji (np. **v1.5**) w sekcji **Assets** kliknij **`rid-heltec-v3-full.bin`**.
 3. Plik trafi do folderu **Pobrane**. Nie otwieraj go, nie rozpakowuj i nie zmieniaj mu nazwy.
 
 ### Krok 2. Podłącz płytkę

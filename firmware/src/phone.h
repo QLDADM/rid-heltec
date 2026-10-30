@@ -420,7 +420,7 @@ static void phoneTick() {
     lastStatus = now;
     char line[200];
     snprintf(line, sizeof(line),
-             "{\"s\":{\"fw\":\"1.8\",\"bat\":%d,\"chg\":%d,\"bmv\":%u,\"mem\":%u,\"ch\":%u,\"fixed\":%s,\"pc\":%s,"
+             "{\"s\":{\"fw\":\"1.5\",\"bat\":%d,\"chg\":%d,\"bmv\":%u,\"mem\":%u,\"ch\":%u,\"fixed\":%s,\"pc\":%s,"
              "\"mesh\":%s,\"up\":%u,\"pend\":%u,\"hist\":%d}}\n",
              batPct, batFull ? 2 : batChg ? 1 : 0, batMv, logCountCur + logCountOld, currentChannel, fixedChannel ? "true" : "false",
              hostConnected() ? "true" : "false", meshRadioOk ? "true" : "false", millis() / 1000, tagPendingCount,
