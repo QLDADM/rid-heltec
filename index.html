@@ -567,6 +567,7 @@ function render() {
         <span>kurs <b>${fmt(d.trk, "°")}</b></span>
         <span>RSSI <b>${fmt(d.rssi, " dBm")}</b></span>
         <span>operator <b>${op ? `${distText(op.dist)} ${cardinal(op.brg)}` : opDrone !== null ? `${distText(opDrone)} od drona` : "—"}</b></span>
+        ${d.opid ? `<span>nr operatora <b>${esc(d.opid)}</b></span>` : ""}
         <span>${agoText(d, age)}</span>
         ${d.hist ? `<span>z pamięci: <b>${timeText(d.histFirst)} – ${timeText(d.histLast)}</b></span>` : ""}
         ${d.maxh ? `<span>maks. wys. <b>${fmt(d.maxh, " m")}</b></span>` : ""}
