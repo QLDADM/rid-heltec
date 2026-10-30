@@ -58,6 +58,7 @@ struct Frame {
 
 static QueueHandle_t frameQueue;
 
+#define FW_VERSION "1.5"  // wspólny numer dla Heltec, CYD i M5 - nowy tylko przy dużych zmianach
 #include "drones.h"
 #include "wifidrone.h"
 #include "hostout.h"  // od tego miejsca Serial = USB + kanał PC przez BLE
@@ -755,7 +756,7 @@ static void handleSerialCommand() {
         lastHostMs = millis();
       }
       if (strcasecmp(buf, "ID") == 0) {  // agent PC rozpoznaje płytkę po tej odpowiedzi
-        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.5\"}");
+        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"" FW_VERSION "\"}");
         printStatus();
         meshPrintStatus(Serial);
       } else if (strncasecmp(buf, "TIME ", 5) == 0) {
@@ -829,6 +830,13 @@ void setup() {
   digitalWrite(PIN_OLED_RST, HIGH);
   display.init();
   display.flipScreenVertically();
+  display.setTextAlignment(TEXT_ALIGN_CENTER);  // ekran startowy z wersją
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(64, 14, "RID Heltec V3");
+  display.setFont(ArialMT_Plain_10);
+  display.drawString(64, 38, "wersja " FW_VERSION);
+  display.display();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
 
   logInit();
   histLoad();

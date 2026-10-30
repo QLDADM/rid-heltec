@@ -264,7 +264,7 @@ static void drawDetail() {
 }
 
 static void drawStatus() {
-  display.drawString(0, 0, String("STAN  Mesh: ") + (meshRadioOk ? "nadaje" : "wyl"));
+  display.drawString(0, 0, String("v" FW_VERSION " Mesh: ") + (meshRadioOk ? "nadaje" : "wyl"));
   drawBattery();
   String bv = String(batMv / 1000.0, 2) + "V";
   display.drawString(0, 13, batFull  ? "Bateria pelna (USB) " + bv
