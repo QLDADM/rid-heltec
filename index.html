@@ -221,12 +221,15 @@ async function openGatt(b) {
     try {
       b.rx = await svc.getCharacteristic(NUS_RX);
       tx = await svc.getCharacteristic(NUS_TX);
-    } catch {
-      // płytka bez części dla telefonu (starszy firmware CYD) - nie próbujemy w kółko
+    } catch (e) {
+      // tylko brak charakterystyki to starszy firmware; zerwane połączenie albo parowanie to zwykły błąd połączenia
+      if (e.name !== "NotFoundError") throw e;
+      b.rx = null;
       b.want = false;
       b.device.gatt.disconnect();
       setConn(b, "brak obsługi telefonu", "off");
-      b.hint = "Ta płytka ma starszy firmware bez podglądu na telefonie - wgraj wersję 1.5.";
+      b.hint = "Płytka nie udostępnia części dla telefonu. Usuń ją w ustawieniach Bluetooth, sparuj ponownie, "
+        + "a jeśli to nie pomoże, sprawdź, czy ma firmware 1.5.";
       rememberBoards();
       renderBoards();
       return;
@@ -245,13 +248,14 @@ async function openGatt(b) {
     $("pinhint").hidden = true;
   } catch (e) {
     // najczęściej: anulowane okno parowania albo zły PIN - nie pytamy w kółko
+    b.rx = null;
     b.failures++;
     if (b.failures >= 2) {
       b.want = false;
       if (b.device.gatt.connected) b.device.gatt.disconnect();
       setConn(b, "nie sparowano", "off");
       b.hint = "Nie udało się połączyć. Sprawdź PIN na ekranie płytki (albo na stronie RID Decoder) i spróbuj ponownie. "
-        + "Jeśli telefon był wcześniej sparowany z tą płytką, usuń ją w ustawieniach Bluetooth telefonu.";
+        + `Jeśli telefon był wcześniej sparowany z tą płytką, usuń ją w ustawieniach Bluetooth telefonu. (${e.name}: ${e.message})`;
       rememberBoards();
       renderBoards();
       return;
