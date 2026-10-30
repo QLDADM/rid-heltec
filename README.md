@@ -73,3 +73,10 @@ Połączenie wymaga sparowania PIN-em i jest szyfrowane, więc obcy telefon nie 
 - `index.html`, `sw.js`, `manifest.webmanifest` i ikony: strona podglądu, publikowana przez GitHub Pages.
 - [firmware/](firmware/): kod źródłowy firmware dla Heltec V3 i instrukcja wgrywania.
 - [Releases](https://github.com/QLDADM/rid-heltec/releases): gotowe pliki firmware do wgrania.
+
+## Inne wykrywacze z tym samym firmware (wersja 1.5)
+
+- [RID CYD](https://github.com/QLDADM/rid-cyd): płytka ESP32-2432S028 z kolorowym ekranem dotykowym 2,8", radarem i zapisem na kartę SD.
+- [RID M5](https://github.com/QLDADM/rid-m5): M5StickC Plus2, mały osobisty alarm z brzęczykiem i trybem szukania drona.
+
+Oznaczenia swój/obcy są wspólne dla wszystkich urządzeń, gdy łączy je agent RID Decoder na komputerze.
