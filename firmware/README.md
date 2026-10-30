@@ -9,6 +9,7 @@ Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (A
 - Oznaczenia swój/obcy są wspólne dla płytki, telefonu i serwera RID Decoder.
 - Wykrywa też drony Wi-Fi bez Remote ID (DJI Tello, Parrot, zabawkowe drony z kamerą Wi-Fi) po nazwie sieci albo producencie.
 - Może wysyłać alarmy o obcych dronach przez LoRa na kanał Meshtastic (domyślnie wyłączone).
+- Komputer z agentem RID Decoder może się z nią łączyć przez Bluetooth zamiast kabla, także gdy telefon jest połączony w tym samym czasie.
 - Pokazuje stan baterii i rozpoznaje ładowanie („LAD” z błyskawicą zamiast procentów, „pelna” po naładowaniu).
 
 ---
@@ -96,6 +97,19 @@ Gotowe. Płytka od razu nasłuchuje i zapisuje drony, także zasilana z powerban
 2. Kliknij **Połącz** i wybierz płytkę **RID-Heltec-XXXX**.
 3. Telefon zapyta o PIN. Wpisz **6 cyfr widocznych na ekranie Heltec**.
 4. Kolejne połączenia z tym telefonem odbywają się już bez PIN-u.
+
+## Połączenie z komputerem przez Bluetooth
+
+Agent RID Decoder (`start_rid.py`) obsługuje płytkę kablem USB albo przez Bluetooth komputera:
+
+1. Podłącz płytkę **raz** kablem USB, gdy działa agent. Agent zapamięta jej PIN.
+2. Odłącz kabel. Po kilkunastu sekundach agent połączy się z płytką przez Bluetooth i paruje ją sam.
+   Na stronie RID Decoder Heltec ma wtedy port **BLE**.
+3. Po podłączeniu kabla agent sam wraca na USB.
+
+Przez Bluetooth działa wszystko to co po kablu: drony, pobieranie pamięci, oznaczenia, Meshtastic.
+Telefon może być połączony z płytką w tym samym czasie. Zasięg zwykle wynosi 10–30 m.
+Na czas połączenia agent wyłącza własny skaner Bluetooth, bo drony BLE wykrywa wtedy płytka.
 
 ## Przycisk PRG
 

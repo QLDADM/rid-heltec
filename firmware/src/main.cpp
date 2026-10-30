@@ -60,6 +60,7 @@ static QueueHandle_t frameQueue;
 
 #include "drones.h"
 #include "wifidrone.h"
+#include "hostout.h"  // od tego miejsca Serial = USB + kanał PC przez BLE
 
 // Surowe ramki do analizy: wszystkie ramki akcji vendor-specific (m.in. NAN) oraz
 // ramki zarządzania od adresów MAC DJI. Limit: 1 ramka / s na nadawcę.
@@ -730,13 +731,16 @@ static void printStatus() {
                 "\"all_beacon\":%u,\"all_action\":%u,\"all_nan\":%u,\"all_ble\":%u,\"diag\":%u,"
                 "\"all_pkts\":%u,\"best_beacon_rssi\":%d,"
                 "\"mem\":%u,\"mem_kb\":%u,\"mem_total_kb\":%u,\"fs\":%s,\"boot\":%u,\"up\":%u,"
-                "\"bat_mv\":%u,\"bat_pct\":%d,\"bat_chg\":%d,\"pin\":%u,\"bonds\":%d,\"phone\":%s,\"wifi_drone\":%u}}\n",
+                "\"bat_mv\":%u,\"bat_pct\":%d,\"bat_chg\":%d,\"pin\":%u,\"bonds\":%d,\"phone\":%s,\"wifi_drone\":%u,"
+                "\"ble_name\":\"%s\",\"pc_ble\":%s,\"rst\":%d}}\n",
                 counts[T_BEACON], counts[T_NAN], counts[T_BLE], dropped, currentChannel,
                 allBeacon, allAction, allNan, allBle, diagSent, allPkts, bestBeaconRssi,
                 logCountCur + logCountOld, fsOk ? (unsigned)(LittleFS.usedBytes() / 1024) : 0,
                 fsOk ? (unsigned)(LittleFS.totalBytes() / 1024) : 0, fsOk ? "true" : "false",
                 bootId, millis() / 1000, batMv, batPct, batFull ? 2 : batChg ? 1 : 0, phonePin, phoneBonds(),
-                phoneConnected ? (phoneSecure ? "\"ok\"" : "\"parowanie\"") : "null", wdSeen);
+                phoneConnected ? (phoneSecure ? "\"ok\"" : "\"parowanie\"") : "null", wdSeen,
+                phoneName, hostBleOn ? "true" : "false",
+                (int)esp_reset_reason());  // przyczyna restartu: 1 zasilanie, 4-7 błąd/watchdog, 9 spadek napięcia
 }
 
 static void handleSerialCommand() {

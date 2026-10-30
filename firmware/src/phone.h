@@ -7,6 +7,8 @@
 //   {"h":{...}}     - historia: dron z pamięci (po HIST), {"hp":[[hk,t,lat,lon,alt],...]} - ślad,
 //   {"hend":n}      - koniec historii
 // Polecenia z telefonu: TAG <id> own|foreign|-, CH <n>, HIST, HISTCLR.
+// Kanał PC (PC_TX / PC_RX): agent na komputerze łączy się przez BLE zamiast kabla i dostaje ten
+// sam protokół co po USB (hostout.h). Telefon i komputer mogą być połączone jednocześnie.
 // Zabezpieczenie: parowanie z PIN-em (6 cyfr, losowany przy pierwszym starcie, w NVS). Telefon
 // wpisuje go w systemowym oknie parowania; PIN widać na OLED w trakcie parowania i na stronie
 // RID Decoder. Bez parowania płytka nic nie wysyła i nie przyjmuje poleceń. Sparowane telefony
@@ -20,16 +22,60 @@
 #define NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define NUS_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define NUS_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+#define PC_TX "6E400004-B5A3-F393-E0A9-E50E24DCCA9E"
+#define PC_RX "6E400005-B5A3-F393-E0A9-E50E24DCCA9E"
+#define BLE_MAX_CONN 3  // CONFIG_BT_NIMBLE_MAX_CONNECTIONS: telefony + komputer
 #define PHONE_DRONE_MS 1000
 #define PHONE_STATUS_MS 5000
 #define PHONE_DRONE_MAX_AGE_MS 60000  // telefon dostaje drony widziane w ostatniej minucie
 
 static NimBLEServer *bleServer = nullptr;
-static NimBLECharacteristic *bleTx = nullptr;
+static NimBLECharacteristic *bleTx = nullptr, *pcTx = nullptr;
 static volatile bool phoneConnected = false, phoneSubscribed = false, phoneWantTags = false;
-static volatile bool phoneSecure = false;  // połączenie zaszyfrowane po parowaniu z PIN-em
+static volatile bool phoneSecure = false;  // telefon połączony i żaden nie jest w trakcie parowania
 static uint32_t phonePin = 0;
-static volatile uint16_t phoneMtu = 23;
+static volatile uint16_t pcConn = BLE_HS_CONN_HANDLE_NONE;  // połączenie agenta PC (kanał PC)
+// połączenia BLE: uchwyt i czy zaszyfrowane po parowaniu z PIN-em
+static volatile uint16_t bleConn[BLE_MAX_CONN] = {BLE_HS_CONN_HANDLE_NONE, BLE_HS_CONN_HANDLE_NONE,
+                                                  BLE_HS_CONN_HANDLE_NONE};
+static volatile bool bleConnSec[BLE_MAX_CONN];
+
+static bool bleSecure(const ble_gap_conn_desc *d) { return d->sec_state.encrypted && d->sec_state.authenticated; }
+
+// stan telefonów (wszystkie połączenia poza agentem PC) do ekranu i statusu
+static void bleRecalc() {
+  bool any = false, pairing = false;
+  for (int i = 0; i < BLE_MAX_CONN; i++) {
+    if (bleConn[i] == BLE_HS_CONN_HANDLE_NONE || bleConn[i] == pcConn) continue;
+    any = true;
+    if (!bleConnSec[i]) pairing = true;
+  }
+  phoneConnected = any;
+  phoneSecure = any && !pairing;
+}
+
+static void bleConnSet(uint16_t h, bool sec) {
+  int free = -1;
+  for (int i = 0; i < BLE_MAX_CONN; i++) {
+    if (bleConn[i] == h) {
+      bleConnSec[i] = sec;
+      bleRecalc();
+      return;
+    }
+    if (free < 0 && bleConn[i] == BLE_HS_CONN_HANDLE_NONE) free = i;
+  }
+  if (free >= 0) {
+    bleConn[free] = h;
+    bleConnSec[free] = sec;
+  }
+  bleRecalc();
+}
+
+static void pcOff() {
+  pcConn = BLE_HS_CONN_HANDLE_NONE;
+  hostBleOn = false;
+  hostBleReset();
+}
 static char phoneCmd[64];
 static volatile bool phoneCmdReady = false;
 static char phoneName[20];
@@ -40,29 +86,27 @@ static TagEntry tagPending[MAX_TAG_PENDING];
 static uint8_t tagPendingCount = 0;
 
 class PhoneServerCb : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
-    phoneConnected = true;
-    phoneSecure = desc->sec_state.encrypted && desc->sec_state.authenticated;
-    phoneMtu = 23;
+  void onConnect(NimBLEServer *, ble_gap_conn_desc *desc) override { bleConnSet(desc->conn_handle, bleSecure(desc)); }
+  void onDisconnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
+    for (int i = 0; i < BLE_MAX_CONN; i++)
+      if (bleConn[i] == desc->conn_handle) bleConn[i] = BLE_HS_CONN_HANDLE_NONE;
+    if (desc->conn_handle == pcConn) pcOff();
+    bleRecalc();
+    phoneSubscribed = bleTx->getSubscribedCount() > 0;
   }
-  void onDisconnect(NimBLEServer *) override {
-    phoneConnected = false;
-    phoneSubscribed = false;
-    phoneSecure = false;
-  }
-  void onMTUChange(uint16_t mtu, ble_gap_conn_desc *) override { phoneMtu = mtu; }
   uint32_t onPassKeyRequest() override { return phonePin; }
   void onAuthenticationComplete(ble_gap_conn_desc *desc) override {
     // tylko parowanie z PIN-em (MITM) - zwykłe "Just Works" nie wystarcza
-    phoneSecure = desc->sec_state.encrypted && desc->sec_state.authenticated;
-    if (!phoneSecure) NimBLEDevice::getServer()->disconnect(desc->conn_handle);
+    bool sec = bleSecure(desc);
+    bleConnSet(desc->conn_handle, sec);
+    if (!sec) NimBLEDevice::getServer()->disconnect(desc->conn_handle);
     else phoneWantTags = true;
   }
 };
 
 class PhoneRxCb : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic *c) override {
-    if (phoneCmdReady) return;  // poprzednie polecenie jeszcze nieprzetworzone
+  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
+    if (phoneCmdReady || !bleSecure(desc)) return;  // poprzednie polecenie nieprzetworzone / bez PIN-u
     std::string v = c->getValue();
     size_t n = min(v.size(), sizeof(phoneCmd) - 1);
     memcpy(phoneCmd, v.data(), n);
@@ -73,9 +117,31 @@ class PhoneRxCb : public NimBLECharacteristicCallbacks {
 };
 
 class PhoneTxCb : public NimBLECharacteristicCallbacks {
-  void onSubscribe(NimBLECharacteristic *, ble_gap_conn_desc *, uint16_t sub) override {
-    phoneSubscribed = sub != 0;
+  void onSubscribe(NimBLECharacteristic *c, ble_gap_conn_desc *, uint16_t sub) override {
+    phoneSubscribed = c->getSubscribedCount() > 0;
     if (sub) phoneWantTags = true;
+  }
+};
+
+// kanał PC: agent subskrybuje PC_TX i pisze polecenia do PC_RX
+class PcTxCb : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic *, ble_gap_conn_desc *desc, uint16_t sub) override {
+    if (sub && bleSecure(desc)) {
+      hostBleReset();
+      pcConn = desc->conn_handle;
+      hostBleOn = true;
+    } else if (desc->conn_handle == pcConn) {
+      pcOff();
+    }
+    bleRecalc();
+  }
+};
+
+class PcRxCb : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
+    if (!bleSecure(desc) || desc->conn_handle != pcConn) return;
+    std::string v = c->getValue();
+    hostBleReceive((const uint8_t *)v.data(), v.size());
   }
 };
 
@@ -120,6 +186,12 @@ static void phoneBegin() {
   NimBLECharacteristic *rx = svc->createCharacteristic(
       NUS_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
   rx->setCallbacks(new PhoneRxCb());
+  pcTx = svc->createCharacteristic(PC_TX, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ |
+                                              NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN);
+  pcTx->setCallbacks(new PcTxCb());
+  NimBLECharacteristic *pcRx = svc->createCharacteristic(
+      PC_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN);
+  pcRx->setCallbacks(new PcRxCb());
   svc->start();
   // przy rozszerzonych reklamach NimBLE nie startuje serwera GATT sam - bez tego telefon
   // łączy się, ale nie widzi żadnych usług
@@ -130,8 +202,32 @@ static void phoneBegin() {
   phoneAdvertise();
 }
 
+// najmniejsze MTU wśród telefonów - powiadomienie idzie do wszystkich naraz
+static size_t phoneChunk() {
+  uint16_t mtu = 0;
+  for (uint16_t h : bleServer->getPeerDevices()) {
+    if (h == pcConn) continue;
+    uint16_t m = bleServer->getPeerMTU(h);
+    if (m && (!mtu || m < mtu)) mtu = m;
+  }
+  return mtu > 3 ? mtu - 3 : 20;
+}
+
+// kawałek bufora kanału PC przez BLE (wywoływane z pętli i z hostOut przy pełnym buforze)
+static void hostBleDrain() {
+  if (!hostBleOn || !pcTx) return;
+  size_t avail = (hostBleOutHead + HOST_BLE_OUT - hostBleOutTail) % HOST_BLE_OUT;
+  if (!avail) return;
+  uint16_t mtu = bleServer->getPeerMTU(pcConn);
+  size_t n = min(min(avail, (size_t)(mtu > 3 ? mtu - 3 : 20)), (size_t)(HOST_BLE_OUT - hostBleOutTail));
+  pcTx->setValue(hostBleOut + hostBleOutTail, n);
+  pcTx->notify();
+  hostBleOutTail = (hostBleOutTail + n) % HOST_BLE_OUT;
+  delay(8);  // jak w phoneSend: NimBLE 1.4 nie zgłasza przepełnienia kolejki powiadomień
+}
+
 static void phoneSend(const char *line) {
-  size_t len = strlen(line), chunk = phoneMtu > 3 ? phoneMtu - 3 : 20;
+  size_t len = strlen(line), chunk = phoneChunk();
   for (size_t i = 0; i < len && phoneSubscribed; i += chunk) {
     size_t n = min(chunk, len - i);
     bleTx->setValue((const uint8_t *)line + i, n);
@@ -290,15 +386,18 @@ static void phoneTick() {
   static uint32_t lastDrones = 0, lastStatus = 0, lastAdvCheck = 0;
   uint32_t now = millis();
   if (!bleServer) return;
+  for (int i = 0; i < 4; i++) hostBleDrain();  // kanał PC
   if (phoneCmdReady) {
-    if (phoneSecure) phoneHandleCommand(phoneCmd);
+    phoneHandleCommand(phoneCmd);  // tylko z połączenia sparowanego z PIN-em (PhoneRxCb)
     phoneCmdReady = false;
   }
   if (now - lastAdvCheck > 2000) {  // przy rozszerzonych reklamach NimBLE nie wznawia ich sam
     lastAdvCheck = now;
-    if (!bleServer->getConnectedCount() && !NimBLEDevice::getAdvertising()->isAdvertising()) phoneAdvertise();
+    // reklama także przy połączeniu: telefon i komputer mogą być połączone naraz
+    if (bleServer->getConnectedCount() < BLE_MAX_CONN && !NimBLEDevice::getAdvertising()->isAdvertising())
+      phoneAdvertise();
   }
-  if (!phoneSubscribed || !phoneSecure) {
+  if (!phoneSubscribed) {  // powiadomienia idą tylko do połączeń zaszyfrowanych (NimBLE)
     if (histStage) {  // telefon się rozłączył w trakcie wysyłki historii
       histStage = 0;
       if (histFile) histFile.close();
@@ -341,6 +440,8 @@ static void phoneSetPin(uint32_t pin) {
 
 #else
 static const bool phoneConnected = false, phoneSecure = false;
+static const char *phoneName = "";
+static void hostBleDrain() {}
 static bool phoneWantTags = false;
 static void tagRecordPending(const char *, uint8_t) {}
 static uint32_t phonePin = 0;
