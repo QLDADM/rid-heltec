@@ -178,7 +178,8 @@ async function connect() {
   let dev;
   try {
     dev = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "RID-Heltec" }, { namePrefix: "RID-CYD" }], optionalServices: [NUS],
+      // po nazwie i po usłudze: część telefonów nie odczytuje nazwy z reklamy Heltec
+      filters: [{ namePrefix: "RID-Heltec" }, { namePrefix: "RID-CYD" }, { services: [NUS] }], optionalServices: [NUS],
     });
   } catch { return; }  // użytkownik zamknął okno wyboru
   unlockAudio();
