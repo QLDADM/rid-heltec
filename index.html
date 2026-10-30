@@ -535,6 +535,20 @@ $("boards").addEventListener("click", (e) => {
   else { attach(b.device); openGatt(b); }
 });
 
+const UA_TYPES = ["", "samolot", "wielowirnikowiec", "wiatrakowiec", "VTOL", "ornitopter", "szybowiec", "latawiec",
+  "balon wolny", "balon na uwięzi", "sterowiec", "spadochron", "rakieta", "na uwięzi", "przeszkoda", "inny"];
+const EU_CATS = ["", "otwarta", "szczególna", "certyfikowana"];
+const OP_LOC = ["miejsce startu", "na żywo", "stała"];
+// model po początku numeru seryjnego: tylko kody potwierdzone na prawdziwych dronach
+const DRONE_MODELS = { "1581F6W8": "DJI Avata 2", "1581F5FJ": "DJI Mavic 3T" };
+function droneModel(id) {
+  if (!id) return null;
+  const m = Object.keys(DRONE_MODELS).find((p) => id.startsWith(p));
+  return m ? DRONE_MODELS[m] : id.startsWith("1581") ? "DJI, model nieznany" : null;
+}
+const HEIGHT_LIMIT_M = 120;
+const LOST_WINDOW_S = 300;
+
 function tagBadge(t) {
   return t === "own" ? '<span class="tag own">SWÓJ</span>' : t === "foreign" ? '<span class="tag foreign">OBCY</span>' : '<span class="tag none">nieoznaczony</span>';
 }
@@ -558,16 +572,29 @@ function render() {
       let h = `<div class="card ${tag || ""} ${age > STALE_S ? "stale" : ""}" data-k="${esc(k)}">
         <div class="top"><div><div class="uid">${esc(name || d.id || "bez ID (" + d.mac + ")")}</div>
           ${name ? `<div style="color:var(--muted);font-size:12px">${esc(d.id)}</div>` : ""}</div>${tagBadge(tag)}</div>`;
+      const model = droneModel(d.id);
+      const cls = d.cl >= 1 && d.cl <= 7 ? `C${d.cl - 1}` : null;
+      if (model || cls || UA_TYPES[d.ut]) h += `<div style="margin-top:4px;color:var(--muted);font-size:13px">${[model, cls, UA_TYPES[d.ut]].filter(Boolean).map(esc).join(" · ")}</div>`;
+      if (d.sid) h += `<div style="margin-top:4px;font-size:13px">opis: <b>${esc(d.sid)}</b></div>`;
+      if (d.h > HEIGHT_LIMIT_M && age <= STALE_S) h += `<div style="margin-top:4px;color:var(--bad);font-weight:700">⚠ ponad ${HEIGHT_LIMIT_M} m: ${Math.round(d.h)} m</div>`;
+      if (age > STALE_S && age < LOST_WINDOW_S && d.st === 2) h += `<div style="margin-top:4px;color:var(--bad);font-weight:700">⚠ zanik sygnału w locie ${Math.round(age)} s temu</div>`;
       if (pos) h += `<div style="margin-top:6px"><span class="dist">${distText(pos.dist)}</span>
         <span class="arrow" style="transform:rotate(${pos.brg}deg)">↑</span> ${cardinal(pos.brg)} ${Math.round(pos.brg)}°</div>`;
       if (d.wifi) h += `<div style="margin-top:6px"><b>dron Wi-Fi: ${esc(d.wifi)}</b> · kanał ${d.ch ?? "—"} · bez Remote ID (brak pozycji)</div>`;
       h += `<div class="nums">
         <span>wys. <b>${fmt(d.h ?? d.alt, " m")}</b></span>
         <span>prędk. <b>${fmt(d.spd, " m/s", 1)}</b></span>
+        ${d.vs !== undefined ? `<span>pion <b>${fmt(d.vs, " m/s", 1)}</b></span>` : ""}
+        ${d.baro !== undefined ? `<span>baro <b>${fmt(d.baro, " m")}</b></span>` : ""}
+        ${d.mh !== undefined ? `<span>maks. wys. lotu <b>${fmt(d.mh, " m")}</b></span>` : ""}
+        ${d.ms !== undefined ? `<span>maks. prędk. <b>${fmt(d.ms, " m/s", 1)}</b></span>` : ""}
         <span>kurs <b>${fmt(d.trk, "°")}</b></span>
         <span>RSSI <b>${fmt(d.rssi, " dBm")}</b></span>
         <span>operator <b>${op ? `${distText(op.dist)} ${cardinal(op.brg)}` : opDrone !== null ? `${distText(opDrone)} od drona` : "—"}</b></span>
         ${d.opid ? `<span>nr operatora <b>${esc(d.opid)}</b></span>` : ""}
+        ${d.olt !== undefined && OP_LOC[d.olt] ? `<span>poz. operatora <b>${OP_LOC[d.olt]}</b></span>` : ""}
+        ${d.oalt !== undefined ? `<span>wys. operatora <b>${fmt(d.oalt, " m")}</b></span>` : ""}
+        ${EU_CATS[d.cat] ? `<span>kategoria UE <b>${EU_CATS[d.cat]}</b></span>` : ""}
         <span>${agoText(d, age)}</span>
         ${d.hist ? `<span>z pamięci: <b>${timeText(d.histFirst)} – ${timeText(d.histLast)}</b></span>` : ""}
         ${d.maxh ? `<span>maks. wys. <b>${fmt(d.maxh, " m")}</b></span>` : ""}
