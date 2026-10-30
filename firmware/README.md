@@ -1,4 +1,4 @@
-# Firmware RID dla Heltec WiFi LoRa 32 V3 (wersja 1.7)
+# Firmware RID dla Heltec WiFi LoRa 32 V3 (wersja 1.8)
 
 Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (ASTM F3411 / Open Drone ID).
 
@@ -9,7 +9,7 @@ Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (A
 - Oznaczenia swój/obcy są wspólne dla płytki, telefonu i serwera RID Decoder.
 - Wykrywa też drony Wi-Fi bez Remote ID (DJI Tello, Parrot, zabawkowe drony z kamerą Wi-Fi) po nazwie sieci albo producencie.
 - Może wysyłać alarmy o obcych dronach przez LoRa na kanał Meshtastic (domyślnie wyłączone).
-- Pokazuje stan baterii.
+- Pokazuje stan baterii i rozpoznaje ładowanie („LAD” z błyskawicą zamiast procentów, „pelna” po naładowaniu).
 
 ---
 
@@ -25,7 +25,7 @@ Zamienia płytkę Heltec V3 (ESP32-S3 + SX1262) w wykrywacz dronów Remote ID (A
 ### Krok 1. Pobierz plik firmware
 
 1. Wejdź na https://github.com/QLDADM/rid-heltec/releases.
-2. Przy najnowszej wersji (np. **v1.6**) w sekcji **Assets** kliknij **`rid-heltec-v3-full.bin`**.
+2. Przy najnowszej wersji (np. **v1.8**) w sekcji **Assets** kliknij **`rid-heltec-v3-full.bin`**.
 3. Plik trafi do folderu **Pobrane**. Nie otwieraj go, nie rozpakowuj i nie zmieniaj mu nazwy.
 
 ### Krok 2. Podłącz płytkę
@@ -116,6 +116,7 @@ Ekran gaśnie sam po 2 minutach, a nasłuch działa dalej. Budzi go przycisk, no
 | „Failed to connect” / „Timed out” | Tryb wgrywania: przytrzymaj PRG, naciśnij RST, puść PRG i połącz ponownie. Zamknij inne programy używające portu. |
 | Port jest zajęty | Zamknij agenta RID Decoder, aplikację Meshtastic na komputerze albo drugą kartę z esptool-js. |
 | Po wgraniu ekran jest czarny | Naciśnij RST. Jeśli dalej nic, kliknij dwa razy PRG (dwuklik włącza ekran). |
+| Podczas ładowania nie widać procentów, tylko „LAD” | Tak ma być. Ładowarka zawyża napięcie baterii, więc procent byłby fałszywy (prawie zawsze 100%). Płytka rozpoznaje ładowanie po skoku napięcia. Prawdziwy procent pojawia się 15–30 s po odłączeniu kabla, a na ekranie STAN widać procent sprzed podłączenia. |
 | Telefon nie łączy się po aktualizacji | Usuń płytkę w ustawieniach Bluetooth telefonu i sparuj ponownie z nowym PIN-em. |
 
 ---

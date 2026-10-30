@@ -266,8 +266,13 @@ static void drawDetail() {
 static void drawStatus() {
   display.drawString(0, 0, String("STAN  Mesh: ") + (meshRadioOk ? "nadaje" : "wyl"));
   drawBattery();
-  display.drawString(0, 13, batPct >= 0 ? "Bateria " + String(batPct) + "%  " + String(batMv / 1000.0, 2) + "V"
-                                         : String("Bateria: brak (USB)"));
+  String bv = String(batMv / 1000.0, 2) + "V";
+  display.drawString(0, 13, batFull  ? "Bateria pelna (USB) " + bv
+                            : batChg ? (batMv > USB_MV ? String("Bateria: brak (USB)")
+                                       : batPctBefore >= 0 ? "Ladowanie " + bv + " od " + String(batPctBefore) + "%"
+                                                           : "Ladowanie " + bv)
+                            : batPct >= 0 ? "Bateria " + String(batPct) + "%  " + bv
+                                          : String("Bateria: brak (USB)"));
   display.drawString(0, 25, "Zapis " + String(logCountCur + logCountOld) + "  Historia " + String(histCount()));
   display.drawString(0, 37, "PIN " + String(phonePin) + "  Tel: " +
                                 (phoneConnected ? (phoneSecure ? "polaczony" : "parowanie") : "-"));

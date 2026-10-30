@@ -540,11 +540,23 @@ static void tagsPrint() {
 #define PIN_VBAT 1
 #define PIN_VBAT_CTRL 37
 #define VBAT_MIN_MV 2500  // poniżej: brak baterii (albo zły poziom sterowania)
-#define USB_MV 4300       // powyżej: zasilanie z USB/ładowanie, bateria pełna lub brak
+#define USB_MV 4300       // powyżej: USB bez baterii (z baterią ładowarka trzyma najwyżej ~4,2 V)
+#define CHG_JUMP_MV 40    // skok napięcia w ciągu ~15 s: podłączenie / odłączenie ładowarki
+#define CHG_TREND_MV 25   // zmiana w ciągu minuty: na samej baterii napięcie nigdy nie rośnie
+#define CHG_FULL_MV 4180  // ładowarka w fazie stałego napięcia (koniec ładowania)
 
+// Płytka nie ma sygnału ładowania (dioda ładowarki nie jest podłączona do procesora), więc
+// ładowanie rozpoznajemy po napięciu. Podczas ładowania napięcie jest zawyżone przez ładowarkę,
+// więc procent nie jest wtedy liczony (batPct = -1, chyba że bateria jest już pełna).
 static int8_t vbatCtrl = -1;  // -1 nieznany, LOW albo HIGH
 static uint16_t batMv = 0;
-static int8_t batPct = -1;    // -1 = brak baterii
+static int8_t batPct = -1;    // -1 = brak baterii albo ładowanie (procent nieznany)
+static bool batChg = false;   // podłączona ładowarka (USB)
+static bool batFull = false;  // ładowarka podłączona, bateria pełna
+static int8_t batPctBefore = -1;  // procent tuż przed podłączeniem ładowarki (-1 nieznany)
+static uint16_t batRaw[12];       // surowe odczyty co 5 s (ostatnia minuta)
+static uint16_t batMin[31];       // odczyt co minutę (ostatnie 30 minut)
+static uint8_t batRawN = 0, batMinN = 0;
 
 static uint32_t readVbat(uint8_t level) {
   pinMode(PIN_VBAT_CTRL, OUTPUT);
@@ -559,11 +571,13 @@ static uint32_t readVbat(uint8_t level) {
 }
 
 static int8_t vbatPercent(uint16_t mv) {
-  // przybliżona krzywa rozładowania ogniwa Li-ion pod małym obciążeniem
-  static const uint16_t MV[] = {4200, 4100, 4000, 3900, 3800, 3700, 3600, 3500, 3400, 3300};
-  static const uint8_t PCT[] = {100, 90, 80, 65, 50, 35, 20, 10, 5, 0};
+  // krzywa rozładowania ogniwa Li-ion pod obciążeniem płytki (~100 mA: nasłuch Wi-Fi i BLE).
+  // Pomiar 1.8: pełna bateria (ładowarka po minucie w fazie stałego napięcia) zaraz po odłączeniu
+  // USB pokazuje ~4,06 V, więc 100% to 4,08 V, a nie 4,2 V jak dla ogniwa bez obciążenia.
+  static const uint16_t MV[] = {4080, 4000, 3930, 3870, 3820, 3770, 3720, 3680, 3620, 3550, 3400, 3300};
+  static const uint8_t PCT[] = {100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 0};
   if (mv >= MV[0]) return 100;
-  for (int i = 1; i < 10; i++)
+  for (int i = 1; i < 12; i++)
     if (mv >= MV[i]) return PCT[i] + (PCT[i - 1] - PCT[i]) * (mv - MV[i]) / (MV[i - 1] - MV[i]);
   return 0;
 }
@@ -585,23 +599,83 @@ static void updateBattery() {
     vbatCtrl = -1;
     batMv = 0;
     batPct = -1;
+    batChg = batFull = false;
+    batRawN = batMinN = 0;
     return;
   }
+  if (mv > USB_MV) {  // USB bez baterii
+    batMv = mv;
+    batPct = -1;
+    batChg = true;
+    batFull = false;
+    batRawN = batMinN = 0;
+    return;
+  }
+  // historia odczytów
+  if (batRawN == 12) memmove(batRaw, batRaw + 1, 11 * sizeof(uint16_t));
+  else batRawN++;
+  batRaw[batRawN - 1] = mv;
+  static uint8_t tick = 0;
+  if (tick++ % 12 == 0) {
+    if (batMinN == 31) memmove(batMin, batMin + 1, 30 * sizeof(uint16_t));
+    else batMinN++;
+    batMin[batMinN - 1] = mv;
+  }
+  auto med3 = [](const uint16_t *p) {
+    uint16_t a = p[0], b = p[1], c = p[2];
+    return max(min(a, b), min(max(a, b), c));
+  };
+  auto avg4 = [](const uint16_t *p) { return (uint16_t)((p[0] + p[1] + p[2] + p[3]) / 4); };
+  uint16_t cur = batRawN >= 3 ? med3(batRaw + batRawN - 3) : mv;  // mediana odcina chwilowe spadki przy nadawaniu
+  bool was = batChg;
+  if (!batMv) batChg = mv >= 4150;  // start już na USB: skoku nie widać, zakładamy ładowanie
+  if (batRawN >= 6) {  // skok: podłączenie lub odłączenie
+    int d = (int)cur - med3(batRaw + batRawN - 6);
+    if (d >= CHG_JUMP_MV) batChg = true;
+    if (d <= -CHG_JUMP_MV) batChg = false;
+  }
+  if (batRawN == 12) {  // trend w ciągu minuty
+    int d = (int)avg4(batRaw + 8) - avg4(batRaw);
+    if (d >= CHG_TREND_MV) batChg = true;
+    if (d <= -CHG_TREND_MV) batChg = false;
+  }
+  // przy ładowaniu prądem napięcie stale rośnie; stoi tylko w fazie stałego napięcia (~4,2 V),
+  // która przy niepełnej baterii trwa jeszcze kilkadziesiąt minut - stąd "pełna" dopiero po 30 min
+  bool flat5 = batMinN >= 6 && (int)cur - batMin[batMinN - 6] < 10;
+  bool flat30 = batMinN == 31 && (int)cur - batMin[0] < 15;
+  if (batChg && flat5 && cur < CHG_FULL_MV) batChg = false;
+  batFull = batChg && flat30 && cur >= CHG_FULL_MV;
+  if (batChg && !was) {
+    batPctBefore = batMv ? batPct : -1;
+  } else if (!batChg && was) {
+    batMv = 0;  // po odłączeniu: bez wygładzania od zawyżonego napięcia ładowania
+    batRawN = 0;
+    batRaw[batRawN++] = mv;
+  }
   batMv = batMv ? (batMv * 3 + mv) / 4 : mv;  // wygładzanie
-  batPct = vbatPercent(batMv);
+  batPct = batFull ? 100 : batChg ? -1 : vbatPercent(batMv);
 }
 
 static void drawBattery() {
   const int x = 104, y = 1;  // ikona 18x9 w prawym górnym rogu
   display.drawRect(x, y, 16, 9);
   display.fillRect(x + 16, y + 2, 2, 5);
-  if (batPct < 0) {
+  if (batChg) {  // błyskawica w ikonie
+    if (batFull) display.fillRect(x + 2, y + 2, 12, 5);
+    display.setColor(batFull ? BLACK : WHITE);
+    display.drawLine(x + 9, y + 1, x + 6, y + 4);
+    display.drawLine(x + 6, y + 4, x + 10, y + 4);
+    display.drawLine(x + 10, y + 4, x + 7, y + 7);
+    display.setColor(WHITE);
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(101, 0, batFull ? "pelna" : "LAD");
+  } else if (batPct < 0) {
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.drawString(101, 0, batMv ? "" : "USB");
   } else {
     display.fillRect(x + 2, y + 2, 12 * batPct / 100, 5);
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(101, 0, batMv > USB_MV ? "USB" : String(batPct) + "%");
+    display.drawString(101, 0, String(batPct) + "%");
   }
   display.setTextAlignment(TEXT_ALIGN_LEFT);
 }
@@ -656,12 +730,12 @@ static void printStatus() {
                 "\"all_beacon\":%u,\"all_action\":%u,\"all_nan\":%u,\"all_ble\":%u,\"diag\":%u,"
                 "\"all_pkts\":%u,\"best_beacon_rssi\":%d,"
                 "\"mem\":%u,\"mem_kb\":%u,\"mem_total_kb\":%u,\"fs\":%s,\"boot\":%u,\"up\":%u,"
-                "\"bat_mv\":%u,\"bat_pct\":%d,\"pin\":%u,\"bonds\":%d,\"phone\":%s,\"wifi_drone\":%u}}\n",
+                "\"bat_mv\":%u,\"bat_pct\":%d,\"bat_chg\":%d,\"pin\":%u,\"bonds\":%d,\"phone\":%s,\"wifi_drone\":%u}}\n",
                 counts[T_BEACON], counts[T_NAN], counts[T_BLE], dropped, currentChannel,
                 allBeacon, allAction, allNan, allBle, diagSent, allPkts, bestBeaconRssi,
                 logCountCur + logCountOld, fsOk ? (unsigned)(LittleFS.usedBytes() / 1024) : 0,
                 fsOk ? (unsigned)(LittleFS.totalBytes() / 1024) : 0, fsOk ? "true" : "false",
-                bootId, millis() / 1000, batMv, batPct, phonePin, phoneBonds(),
+                bootId, millis() / 1000, batMv, batPct, batFull ? 2 : batChg ? 1 : 0, phonePin, phoneBonds(),
                 phoneConnected ? (phoneSecure ? "\"ok\"" : "\"parowanie\"") : "null", wdSeen);
 }
 
@@ -677,7 +751,7 @@ static void handleSerialCommand() {
         lastHostMs = millis();
       }
       if (strcasecmp(buf, "ID") == 0) {  // agent PC rozpoznaje płytkę po tej odpowiedzi
-        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.7\"}");
+        Serial.println("{\"info\":\"RID sensor Heltec V3\",\"fw\":\"1.8\"}");
         printStatus();
         meshPrintStatus(Serial);
       } else if (strncasecmp(buf, "TIME ", 5) == 0) {

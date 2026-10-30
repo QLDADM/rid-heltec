@@ -442,7 +442,8 @@ const distText = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed
 function renderStatus() {
   const s = status;
   if (!s) { $("status").innerHTML = ""; return; }
-  const bat = s.bat >= 0 ? `<b style="color:${s.bat <= 15 ? "var(--bad)" : s.bat <= 35 ? "var(--warn)" : "var(--ok)"}">${s.bat}%</b>` : "<b>USB</b>";
+  const bat = s.chg === 2 ? `<b style="color:var(--ok)">pełna ⚡</b>` : s.chg === 1 && s.bmv <= 4300 ? "<b>ładowanie ⚡</b>"
+    : s.bat >= 0 ? `<b style="color:${s.bat <= 15 ? "var(--bad)" : s.bat <= 35 ? "var(--warn)" : "var(--ok)"}">${s.bat}%</b>` : "<b>USB</b>";
   $("status").innerHTML = `<span>bateria ${bat}</span><span>zapisane <b>${s.mem}</b></span>
     <span>kanał Wi-Fi <b>${s.ch}${s.fixed ? "" : "*"}</b></span>
     <span>Meshtastic <b>${s.mesh ? "nadaje" : "wył."}</b></span>
