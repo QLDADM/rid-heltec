@@ -78,6 +78,12 @@
   .leaflet-tooltip.lbl { background: rgba(15, 20, 25, .85); color: var(--text); border: 1px solid var(--line);
     font: 11px ui-monospace, Consolas, monospace; padding: 1px 5px; box-shadow: none; }
   .leaflet-tooltip.lbl::before { display: none; }
+  #boards { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .board { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .board .bh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .board .bn { font-weight: 600; flex: 1; font-family: ui-monospace, Consolas, monospace; }
+  .board .bar { padding: 4px 0 0; }
+  .board button { padding: 5px 10px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -86,13 +92,14 @@
   <span id="conn" class="pill off">rozłączono</span>
   <button id="connect" class="primary">Połącz</button>
 </header>
+<div id="boards"></div>
 
 <div id="support" class="note bad" hidden></div>
-<div id="pinhint" class="note">Przy pierwszym połączeniu telefon zapyta o <b>PIN</b>. Jest na ekranie Heltec
-  w trakcie parowania oraz na stronie RID Decoder (panel Urządzenia → Heltec). Potem telefon łączy się bez PIN-u.</div>
+<div id="pinhint" class="note">Przy pierwszym połączeniu telefon zapyta o <b>PIN</b>. Heltec pokazuje go na ekranie
+  w trakcie parowania, CYD na górnym pasku i w Ustawieniach; jest też na stronie RID Decoder (panel Urządzenia).
+  Potem telefon łączy się bez PIN-u. Przyciskiem <b>Dodaj płytkę</b> możesz połączyć kilka płytek naraz (Heltec i CYD).</div>
 <div id="alerts"></div>
 
-<div class="bar" id="status"></div>
 <div class="bar">
   <label class="chk"><input type="checkbox" id="sound" checked> dźwięk i wibracja</label>
   <label class="chk"><input type="checkbox" id="wake"> ekran nie gaśnie</label>
@@ -107,16 +114,17 @@
 </div>
 <div id="mapwrap" hidden><div id="map"></div><div id="mapmsg" class="note" hidden></div></div>
 <div id="radarwrap" hidden><svg id="radar" viewBox="-110 -110 220 220"></svg></div>
-<div id="list"><div class="empty">Połącz się z Heltec, żeby zobaczyć drony w zasięgu.</div></div>
+<div id="list"><div class="empty">Połącz się z płytką Heltec albo CYD, żeby zobaczyć drony w zasięgu.</div></div>
 <div class="row" style="margin-top:10px">
   <button id="clearlist">Wyczyść listę</button>
   <button id="histreload" title="Pobierz ponownie historię z pamięci Heltec">Odśwież historię</button>
   <button id="histclear" class="foreign" title="Kasuje historię dronów zapisaną w Heltec">Wyczyść historię w Heltec</button>
 </div>
 <p class="note" style="color:var(--muted);font-size:13px">
-  Telefon łączy się z płytką Heltec (firmware RID 1.4+) przez Bluetooth: na Androidzie w Chrome,
-  na iPhonie w przeglądarce Bluefy. Oznaczenia swój/obcy zapisuje Heltec i przekazuje je na stronę
-  RID Decoder po podłączeniu do komputera. Odległości liczone są z GPS telefonu.
+  Telefon łączy się z płytkami Heltec i CYD (firmware RID 1.5) przez Bluetooth: na Androidzie w Chrome,
+  na iPhonie w przeglądarce Bluefy. Można połączyć kilka płytek naraz - drony ze wszystkich są na jednej liście.
+  Oznaczenia swój/obcy trafiają do wszystkich połączonych płytek, a z nich na stronę RID Decoder
+  po podłączeniu do komputera. Odległości liczone są z GPS telefonu.
 </p>
 
 <script>
@@ -135,11 +143,12 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* tryb prywatny */ } },
 };
 
-let device = null, rx = null, wantConnected = false, buffer = "", failures = 0;
+// kilka płytek naraz (Heltec, CYD): każda ma własne połączenie, drony ze wszystkich są na jednej liście
+const boards = new Map();      // id urządzenia Bluetooth -> {device, rx, buffer, failures, want, status, tags, ...}
 let drones = new Map();        // klucz -> {..dane z płytki, seen: ms, first: ms}
-let tags = {};                 // UAS ID -> own | foreign (z płytki)
+let tags = {};                 // UAS ID -> own | foreign (suma oznaczeń z płytek)
 let names = store.get("rid-names", {});  // UAS ID -> nazwa (tylko na tym telefonie)
-let status = null, me = null, expanded = null, wakeLock = null;
+let me = null, expanded = null, wakeLock = null;
 const alerted = new Map();     // klucz -> ostatni alarm (ms)
 
 // ---------------------------------------------------------------- Bluetooth
@@ -161,113 +170,154 @@ function checkSupport() {
   return true;
 }
 
+const anyConnected = () => [...boards.values()].some((b) => b.rx);
+const boardLabel = (b) => (b.device.name || "płytka").replace(/^RID-/, "");
+
 async function connect() {
   if (!checkSupport()) return;
+  let dev;
   try {
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "RID-Heltec" }, { services: [NUS] }], optionalServices: [NUS],
+    dev = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: "RID-Heltec" }, { namePrefix: "RID-CYD" }], optionalServices: [NUS],
     });
   } catch { return; }  // użytkownik zamknął okno wyboru
   unlockAudio();
-  attach(device);
-  await openGatt();
+  const b = attach(dev);
+  if (!b.rx) await openGatt(b);
 }
 
 function attach(dev) {
-  device = dev;
-  wantConnected = true;
-  failures = 0;
-  store.set("rid-auto", true);
-  if (!dev._ridListener) {
-    dev.addEventListener("gattserverdisconnected", onDisconnected);
-    dev._ridListener = true;
+  let b = boards.get(dev.id);
+  if (!b) {
+    b = { device: dev, rx: null, buffer: "", failures: 0, want: true, status: null, tags: {},
+          state: "", cls: "", histKeys: new Map(), histPts: new Map(), histInfo: "" };
+    boards.set(dev.id, b);
+    dev.addEventListener("gattserverdisconnected", () => onDisconnected(b));
   }
+  b.device = dev;
+  b.want = true;
+  b.failures = 0;
+  b.hint = "";
+  rememberBoards();
   startGps();
+  renderBoards();
+  return b;
 }
 
-async function openGatt() {
-  setConn("łączę…", "");
+// po odświeżeniu strony łączymy się sami z tymi płytkami
+function rememberBoards() {
+  store.set("rid-auto-ids", [...boards.entries()].filter(([, b]) => b.want).map(([id]) => id));
+}
+
+async function openGatt(b) {
+  setConn(b, "łączę…", "");
   try {
-    const server = await device.gatt.connect();
+    const server = await b.device.gatt.connect();
     const svc = await server.getPrimaryService(NUS);
-    rx = await svc.getCharacteristic(NUS_RX);
-    const tx = await svc.getCharacteristic(NUS_TX);
-    tx.addEventListener("characteristicvaluechanged", onData);
+    let tx;
+    try {
+      b.rx = await svc.getCharacteristic(NUS_RX);
+      tx = await svc.getCharacteristic(NUS_TX);
+    } catch {
+      // płytka bez części dla telefonu (starszy firmware CYD) - nie próbujemy w kółko
+      b.want = false;
+      b.device.gatt.disconnect();
+      setConn(b, "brak obsługi telefonu", "off");
+      b.hint = "Ta płytka ma starszy firmware bez podglądu na telefonie - wgraj wersję 1.5.";
+      rememberBoards();
+      renderBoards();
+      return;
+    }
+    if (!tx._rid) {  // ten sam obiekt wraca przy ponownym połączeniu - jeden odbiornik danych
+      tx.addEventListener("characteristicvaluechanged", (e) => onData(b, e));
+      tx._rid = true;
+    }
     await tx.startNotifications();
-    buffer = "";
-    failures = 0;
-    $("devname").textContent = device.name || "Heltec";
-    setConn("połączono", "on");
-    // czas z telefonu (godziny w historii także bez komputera), potem drony z pamięci Heltec
-    setTimeout(async () => { await send(`TIME ${Math.floor(Date.now() / 1000)}`); send("HIST"); }, 800);
-    $("connect").textContent = "Rozłącz";
+    b.buffer = "";
+    b.failures = 0;
+    b.hint = "";
+    setConn(b, "połączono", "on");
+    // czas z telefonu (godziny w historii także bez komputera), potem drony z pamięci płytki
+    setTimeout(async () => { await send(b, `TIME ${Math.floor(Date.now() / 1000)}`); send(b, "HIST"); }, 800);
     $("pinhint").hidden = true;
   } catch (e) {
     // najczęściej: anulowane okno parowania albo zły PIN - nie pytamy w kółko
-    failures++;
-    if (failures >= 2) {
-      wantConnected = false;
-      if (device.gatt.connected) device.gatt.disconnect();
-      setConn("nie sparowano", "off");
-      $("connect").textContent = "Połącz";
-      $("pinhint").hidden = false;
-      $("pinhint").innerHTML = "<b>Nie udało się połączyć.</b> Sprawdź PIN na ekranie Heltec (albo na stronie RID Decoder) "
-        + "i spróbuj ponownie. Jeśli telefon był wcześniej sparowany z tą płytką, usuń ją w ustawieniach Bluetooth telefonu.";
+    b.failures++;
+    if (b.failures >= 2) {
+      b.want = false;
+      if (b.device.gatt.connected) b.device.gatt.disconnect();
+      setConn(b, "nie sparowano", "off");
+      b.hint = "Nie udało się połączyć. Sprawdź PIN na ekranie płytki (albo na stronie RID Decoder) i spróbuj ponownie. "
+        + "Jeśli telefon był wcześniej sparowany z tą płytką, usuń ją w ustawieniach Bluetooth telefonu.";
+      rememberBoards();
+      renderBoards();
       return;
     }
-    setConn("błąd połączenia", "off");
-    if (wantConnected) setTimeout(() => wantConnected && !device.gatt.connected && openGatt(), 3000);
+    setConn(b, "błąd połączenia", "off");
+    if (b.want) setTimeout(() => b.want && !b.device.gatt.connected && openGatt(b), 3000);
   }
 }
 
-function onDisconnected() {
-  rx = null;
-  setConn(wantConnected ? "ponowne łączenie…" : "rozłączono", "off");
-  $("connect").textContent = wantConnected ? "Rozłącz" : "Połącz";
-  if (wantConnected) setTimeout(() => wantConnected && openGatt(), 2000);
+function onDisconnected(b) {
+  b.rx = null;
+  setConn(b, b.want ? "ponowne łączenie…" : "rozłączono", "off");
+  if (b.want) setTimeout(() => b.want && openGatt(b), 2000);
 }
 
-function disconnect() {
-  wantConnected = false;
-  store.set("rid-auto", false);  // rozłączone ręcznie - po odświeżeniu nie łączymy się sami
-  if (device?.gatt.connected) device.gatt.disconnect();
-  $("connect").textContent = "Połącz";
-  setConn("rozłączono", "off");
+function disconnect(b) {
+  b.want = false;
+  if (b.device.gatt.connected) b.device.gatt.disconnect();
+  for (const [id, x] of boards) if (x === b) boards.delete(id);
+  combineTags();
+  rememberBoards();
+  renderBoards();
+  render();
 }
 
-function setConn(text, cls) {
-  $("conn").textContent = text;
-  $("conn").className = `pill ${cls}`;
+function setConn(b, text, cls) {
+  b.state = text;
+  b.cls = cls;
+  renderBoards();
 }
 
-async function send(cmd) {
-  if (!rx) return false;
+async function send(b, cmd) {
+  if (!b.rx) return false;
   const data = new TextEncoder().encode(cmd + "\n");
   try {
-    if (rx.writeValueWithResponse) await rx.writeValueWithResponse(data);
-    else await rx.writeValue(data);
+    if (b.rx.writeValueWithResponse) await b.rx.writeValueWithResponse(data);
+    else await b.rx.writeValue(data);
     return true;
   } catch { return false; }
 }
 
-function onData(e) {
-  buffer += new TextDecoder().decode(e.target.value);
+// polecenie do wszystkich połączonych płytek; true, gdy przyjęła je choć jedna
+async function sendAll(cmd) {
+  const res = await Promise.all([...boards.values()].filter((b) => b.rx).map((b) => send(b, cmd)));
+  return res.some(Boolean);
+}
+
+function combineTags() {
+  tags = Object.assign({}, ...[...boards.values()].map((b) => b.tags));
+}
+
+function onData(b, e) {
+  b.buffer += new TextDecoder().decode(e.target.value);
   let i;
-  while ((i = buffer.indexOf("\n")) >= 0) {
-    const line = buffer.slice(0, i).trim();
-    buffer = buffer.slice(i + 1);
+  while ((i = b.buffer.indexOf("\n")) >= 0) {
+    const line = b.buffer.slice(0, i).trim();
+    b.buffer = b.buffer.slice(i + 1);
     if (!line) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
-    if (msg.d) onDrone(msg.d);
-    else if (msg.s) { status = msg.s; renderStatus(); }
-    else if (msg.tags) { tags = msg.tags; render(); }
-    else if (msg.h) onHist(msg.h);
-    else if (msg.hp) onHistPoints(msg.hp);
-    else if (msg.hend !== undefined) onHistEnd(msg.hend);
-    else if (msg.hclr) { for (const [k, d] of drones) if (d.hist && !d.live) drones.delete(k); histInfo = "historia wyczyszczona"; render(); }
+    if (msg.d) onDrone(msg.d, b);
+    else if (msg.s) { b.status = msg.s; renderBoards(); }
+    else if (msg.tags) { b.tags = msg.tags; combineTags(); render(); }
+    else if (msg.h) onHist(b, msg.h);
+    else if (msg.hp) onHistPoints(b, msg.hp);
+    else if (msg.hend !== undefined) onHistEnd(b, msg.hend);
+    else if (msg.hclr) { for (const [k, d] of drones) if (d.hist && !d.live) drones.delete(k); b.histInfo = "historia wyczyszczona"; render(); renderBoards(); }
   }
-  if (buffer.length > 4000) buffer = "";  // zabezpieczenie przed zgubionym końcem linii
+  if (b.buffer.length > 4000) b.buffer = "";  // zabezpieczenie przed zgubionym końcem linii
 }
 
 // ---------------------------------------------------------------- dane
@@ -276,13 +326,11 @@ function keyOf(d) { return d.id || `mac:${d.mac}`; }
 function tagOf(d) { return (d.id && tags[d.id]) || d.tag || null; }
 
 // ---- historia z pamięci Heltec: te same drony, które strona RID Decoder pokazuje po imporcie
-const histKeys = new Map();   // hk (skrót ID z płytki) -> klucz drona
-const histPts = new Map();    // klucz drona -> [[t, lat, lon]]
-let histInfo = "";
+// (osobno dla każdej płytki: b.histKeys - hk -> klucz drona, b.histPts - klucz drona -> [[t, lat, lon]])
 
-function onHist(h) {
+function onHist(b, h) {
   const k = h.id.startsWith("mac:") ? `mac:${h.id.slice(4)}` : h.id;
-  histKeys.set(h.hk, k);
+  b.histKeys.set(h.hk, k);
   const e = drones.get(k) || { first: Infinity, seen: 0 };
   const last = h.last ? h.last * 1000 : 0;
   e.hist = true;
@@ -299,28 +347,29 @@ function onHist(h) {
   if (e.histFirst && e.histFirst < e.first) e.first = e.histFirst;
   e.track = e.track || [];
   drones.set(k, e);
-  histPts.set(k, []);
+  b.histPts.set(k, []);
   scheduleRender();
 }
 
-function onHistPoints(pts) {
+function onHistPoints(b, pts) {
   for (const [hk, t, lat, lon] of pts) {
-    const k = histKeys.get(hk);
-    if (k && histPts.has(k)) histPts.get(k).push([t, lat, lon]);
+    const k = b.histKeys.get(hk);
+    if (k && b.histPts.has(k)) b.histPts.get(k).push([t, lat, lon]);
   }
 }
 
-function onHistEnd(n) {
-  for (const [k, pts] of histPts) {
+function onHistEnd(b, n) {
+  for (const [k, pts] of b.histPts) {
     const e = drones.get(k);
     if (!e) continue;
     pts.sort((a, b) => a[0] - b[0]);
     // ślad z pamięci + to, co przyszło na żywo w trakcie
     e.track = pts.map((p) => [p[1], p[2]]).concat(e.liveTrack || []);
   }
-  histPts.clear();
-  histInfo = n ? `w pamięci Heltec: ${n} dronów` : "historia w Heltec jest pusta";
+  b.histPts.clear();
+  b.histInfo = n ? `w pamięci: ${n} dronów` : b.status?.dev === "cyd" ? "" : "historia w pamięci pusta";
   render();
+  renderBoards();
 }
 
 const timeText = (ms) => {
@@ -337,7 +386,7 @@ const agoText = (d, age) => {
   return `ostatnio ${timeText(d.seen)}`;
 };
 
-function onDrone(d) {
+function onDrone(d, b) {
   const k = keyOf(d);
   const now = Date.now();
   const prev = drones.get(k);
@@ -352,6 +401,7 @@ function onDrone(d) {
   const before = drones.get(k);
   const merged = { ...(before || { first: seen }), ...d, seen };
   merged.live = true;
+  merged.via = { ...(before?.via || {}), [boardLabel(b)]: seen };  // które płytki widzą drona
   if (!Number.isFinite(merged.first)) merged.first = seen;
   // ślad lotu do mapy: z pamięci Heltec (historia) + pozycje na żywo (ostatnie 300)
   merged.track = before?.track || [];
@@ -439,18 +489,44 @@ const distText = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed
 
 // ---------------------------------------------------------------- widok
 
-function renderStatus() {
-  const s = status;
-  if (!s) { $("status").innerHTML = ""; return; }
-  const bat = s.chg === 2 ? `<b style="color:var(--ok)">pełna ⚡</b>` : s.chg === 1 && s.bmv <= 4300 ? "<b>ładowanie ⚡</b>"
-    : s.bat >= 0 ? `<b style="color:${s.bat <= 15 ? "var(--bad)" : s.bat <= 35 ? "var(--warn)" : "var(--ok)"}">${s.bat}%</b>` : "<b>USB</b>";
-  $("status").innerHTML = `<span>bateria ${bat}</span><span>zapisane <b>${s.mem}</b></span>
-    <span>kanał Wi-Fi <b>${s.ch}${s.fixed ? "" : "*"}</b></span>
-    <span>Meshtastic <b>${s.mesh ? "nadaje" : "wył."}</b></span>
-    ${s.pc ? "<span><b>podłączony do PC</b></span>" : ""}
-    ${s.pend ? `<span>oznaczeń do przeniesienia na stronę: <b>${s.pend}</b></span>` : ""}
-    ${histInfo ? `<span>${esc(histInfo)}</span>` : ""}`;
+function renderBoards() {
+  const list = [...boards.values()];
+  const on = list.filter((b) => b.rx).length;
+  $("devname").textContent = !list.length ? "nie połączono" : list.length === 1 ? boardLabel(list[0]) : `płytki: ${on}/${list.length}`;
+  $("conn").textContent = !list.length ? "rozłączono" : on ? "połączono" : "łączę…";
+  $("conn").className = `pill ${on ? "on" : "off"}`;
+  $("connect").textContent = list.length ? "Dodaj płytkę" : "Połącz";
+  $("boards").innerHTML = list.map((b) => {
+    const s = b.status;
+    let info = "";
+    if (s && b.rx) {
+      const bat = s.chg === 2 ? `<b style="color:var(--ok)">pełna ⚡</b>` : s.chg === 1 && s.bmv <= 4300 ? "<b>ładowanie ⚡</b>"
+        : s.bat >= 0 ? `<b style="color:${s.bat <= 15 ? "var(--bad)" : s.bat <= 35 ? "var(--warn)" : "var(--ok)"}">${s.bat}%</b>` : "<b>USB</b>";
+      const cyd = s.dev === "cyd";
+      info = `<div class="bar"><span>bateria ${bat}</span>
+        <span>${cyd ? `karta SD <b>${s.sd ? s.mem : "brak"}</b>` : `zapisane <b>${s.mem}</b>`}</span>
+        <span>kanał Wi-Fi <b>${s.ch}${s.fixed ? "" : "*"}</b></span>
+        ${cyd ? "" : `<span>Meshtastic <b>${s.mesh ? "nadaje" : "wył."}</b></span>`}
+        ${s.pc ? "<span><b>podłączony do PC</b></span>" : ""}
+        ${s.pend ? `<span>oznaczeń do przeniesienia na stronę: <b>${s.pend}</b></span>` : ""}
+        ${b.histInfo ? `<span>${esc(b.histInfo)}</span>` : ""}</div>`;
+    }
+    const id = [...boards.entries()].find(([, x]) => x === b)[0];
+    return `<div class="board"><div class="bh"><span class="bn">${esc(boardLabel(b))}</span>
+      <span class="pill ${b.cls}">${esc(b.state || "—")}</span>
+      <button data-board="${esc(id)}" data-bact="${b.want ? "off" : "on"}">${b.want ? "Rozłącz" : "Połącz"}</button></div>
+      ${info}${b.hint ? `<div class="note bad" style="margin:6px 0 0">${esc(b.hint)}</div>` : ""}</div>`;
+  }).join("");
 }
+
+$("boards").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-board]");
+  if (!btn) return;
+  const b = boards.get(btn.dataset.board);
+  if (!b) return;
+  if (btn.dataset.bact === "off") disconnect(b);
+  else { attach(b.device); openGatt(b); }
+});
 
 function tagBadge(t) {
   return t === "own" ? '<span class="tag own">SWÓJ</span>' : t === "foreign" ? '<span class="tag foreign">OBCY</span>' : '<span class="tag none">nieoznaczony</span>';
@@ -465,7 +541,7 @@ function render() {
     .sort((a, b) => (a.age > STALE_S) - (b.age > STALE_S) || a.age - b.age);
 
   if (!list.length) {
-    $("list").innerHTML = `<div class="empty">${rx ? "Brak dronów w zasięgu. Heltec nasłuchuje…" : "Połącz się z Heltec, żeby zobaczyć drony w zasięgu."}</div>`;
+    $("list").innerHTML = `<div class="empty">${anyConnected() ? "Brak dronów w zasięgu. Płytki nasłuchują…" : "Połącz się z płytką Heltec albo CYD, żeby zobaczyć drony w zasięgu."}</div>`;
   } else {
     $("list").innerHTML = list.map(({ k, d, tag, age }) => {
       const pos = d.lat !== undefined && me ? geo(me.lat, me.lon, d.lat, d.lon) : null;
@@ -488,6 +564,7 @@ function render() {
         ${d.hist ? `<span>z pamięci: <b>${timeText(d.histFirst)} – ${timeText(d.histLast)}</b></span>` : ""}
         ${d.maxh ? `<span>maks. wys. <b>${fmt(d.maxh, " m")}</b></span>` : ""}
         ${d.lat === undefined && !d.wifi ? "<span>brak pozycji drona</span>" : ""}
+        ${boards.size > 1 && d.via ? `<span>widzi: <b>${esc(Object.keys(d.via).filter((n) => Date.now() - d.via[n] < STALE_S * 1000).join(", ") || "—")}</b></span>` : ""}
       </div>`;
       if (expanded === k) {
         h += `<div class="more">
@@ -693,12 +770,12 @@ function renderRadar(list) {
 
 // ---------------------------------------------------------------- obsługa
 
-$("connect").addEventListener("click", () => (wantConnected ? disconnect() : connect()));
+$("connect").addEventListener("click", connect);
 $("hideown").addEventListener("change", render);
 $("clearlist").addEventListener("click", () => { drones.clear(); render(); });
-$("histreload").addEventListener("click", () => send("HIST"));
+$("histreload").addEventListener("click", () => sendAll("HIST"));
 $("histclear").addEventListener("click", () => {
-  if (confirm("Skasować historię dronów zapisaną w Heltec? (Pełny zapis ramek dla komputera zostaje.)")) send("HISTCLR");
+  if (confirm("Skasować historię dronów zapisaną w Heltec? (Pełny zapis ramek dla komputera zostaje.)")) sendAll("HISTCLR");
 });
 $("list").addEventListener("click", async (e) => {
   const card = e.target.closest(".card");
@@ -714,10 +791,10 @@ $("list").addEventListener("click", async (e) => {
     if (act === "-") delete tags[d.id]; else tags[d.id] = act;
     d.tag = act === "-" ? undefined : act;
     render();
-    if (!(await send(`TAG ${d.id} ${act}`))) {
+    if (!(await sendAll(`TAG ${d.id} ${act}`))) {
       if (before.tag) tags[d.id] = before.tag; else delete tags[d.id];
       d.tag = before.dtag;
-      alert("Nie zapisano oznaczenia - sprawdź połączenie z Heltec.");
+      alert("Nie zapisano oznaczenia - sprawdź połączenie z płytką.");
       render();
     }
     return;
@@ -786,23 +863,27 @@ applyWake();
 document.addEventListener("pointerdown", () => { unlockAudio(); applyWake(); }, { once: true });
 document.addEventListener("touchend", () => applyWake(), { once: true });  // iOS: odtwarzanie wideo tylko po dotknięciu
 
-// ---- po odświeżeniu łączymy się sami z wcześniej wybranym Heltec (bez okna wyboru i PIN-u)
+// ---- po odświeżeniu łączymy się sami z wcześniej wybranymi płytkami (bez okna wyboru i PIN-u)
 async function autoReconnect() {
-  if (!store.get("rid-auto", false) || !navigator.bluetooth?.getDevices || !window.isSecureContext) return;
+  if (!navigator.bluetooth?.getDevices || !window.isSecureContext) return;
+  let ids = store.get("rid-auto-ids", null);
+  if (ids === null) ids = store.get("rid-auto", false) ? "heltec" : [];  // zapis ze starszej wersji strony
   let known;
-  try { known = (await navigator.bluetooth.getDevices()).find((d) => (d.name || "").startsWith("RID-Heltec")); } catch { return; }
-  if (!known) return;
-  setConn("łączę automatycznie…", "");
-  attach(known);
-  try { await known.gatt.connect(); } catch {
-    // płytka jeszcze nieosiągalna - czekamy na jej reklamę
-    if (known.watchAdvertisements) {
-      known.addEventListener("advertisementreceived", () => { if (wantConnected && !rx) openGatt(); }, { once: true });
-      try { await known.watchAdvertisements(); } catch { /* brak wsparcia */ }
-      return;
+  try { known = await navigator.bluetooth.getDevices(); } catch { return; }
+  known = known.filter((d) => (ids === "heltec" ? (d.name || "").startsWith("RID-Heltec") : ids.includes(d.id)));
+  for (const dev of known) {
+    const b = attach(dev);
+    setConn(b, "łączę automatycznie…", "");
+    try { await dev.gatt.connect(); } catch {
+      // płytka jeszcze nieosiągalna - czekamy na jej reklamę
+      if (dev.watchAdvertisements) {
+        dev.addEventListener("advertisementreceived", () => { if (b.want && !b.rx) openGatt(b); }, { once: true });
+        try { await dev.watchAdvertisements(); } catch { /* brak wsparcia */ }
+        continue;
+      }
     }
+    openGatt(b);
   }
-  openGatt();
 }
 // odświeżanie wieku danych, gdy płytka nic nie przysyła; bez przerysowania w trakcie wpisywania nazwy
 setInterval(() => { if (document.activeElement?.id !== "nameinp") render(); }, 2000);
